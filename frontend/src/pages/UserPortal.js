@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShieldCheck, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import QRCode from 'qrcode.react';
+import { QRCodeSVG } from 'qrcode.react';
 
 export default function UserPortal() {
   const navigate = useNavigate();
@@ -101,7 +101,7 @@ export default function UserPortal() {
             {/* QR Code */}
             <div className="flex flex-col items-center">
               <div className="bg-white p-4 rounded-lg border border-slate-200" data-testid="qr-code-container">
-                <QRCode value={user.token} size={200} level="H" />
+                <QRCodeSVG value={user.token} size={200} level="H" />
               </div>
               <div className="mt-4 text-center">
                 <p className="text-sm text-slate-500 uppercase tracking-wider mb-1">Valid Until</p>

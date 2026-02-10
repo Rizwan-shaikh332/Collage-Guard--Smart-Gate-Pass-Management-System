@@ -445,6 +445,10 @@ function EventsTab({ events, fetchEvents, students }) {
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [eventStudents, setEventStudents] = useState([]);
   const [studentRegNo, setStudentRegNo] = useState('');
+  const [manualEntry, setManualEntry] = useState(false);
+  const [manualStudentData, setManualStudentData] = useState({
+    reg_no: '', name: '', email: '', mobile_no: ''
+  });
   const [bulkFile, setBulkFile] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -474,20 +478,46 @@ function EventsTab({ events, fetchEvents, students }) {
   };
 
   const handleAddStudent = async () => {
-    if (!selectedEvent || !studentRegNo) return;
-    setLoading(true);
-    try {
-      await axios.post(`${BACKEND_URL}/api/events/students`, {
-        event_id: selectedEvent.event_id,
-        reg_no: studentRegNo
-      });
-      toast.success('Student added to event and email sent!');
-      fetchEventStudents(selectedEvent.event_id);
-      setStudentRegNo('');
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to add student');
-    } finally {
-      setLoading(false);
+    if (!selectedEvent) return;
+    
+    if (manualEntry) {
+      // Manual entry for external students
+      if (!manualStudentData.reg_no || !manualStudentData.name || !manualStudentData.email || !manualStudentData.mobile_no) {
+        toast.error('Please fill all fields for manual entry');
+        return;
+      }
+      setLoading(true);
+      try {
+        await axios.post(`${BACKEND_URL}/api/events/students/manual`, {
+          event_id: selectedEvent.event_id,
+          ...manualStudentData
+        });
+        toast.success('External student added to event!');
+        fetchEventStudents(selectedEvent.event_id);
+        setManualStudentData({ reg_no: '', name: '', email: '', mobile_no: '' });
+        setManualEntry(false);
+      } catch (error) {
+        toast.error(error.response?.data?.detail || 'Failed to add student');
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      // Existing PICT student
+      if (!studentRegNo) return;
+      setLoading(true);
+      try {
+        await axios.post(`${BACKEND_URL}/api/events/students`, {
+          event_id: selectedEvent.event_id,
+          reg_no: studentRegNo
+        });
+        toast.success('Student added to event and email sent!');
+        fetchEventStudents(selectedEvent.event_id);
+        setStudentRegNo('');
+      } catch (error) {
+        toast.error(error.response?.data?.detail || 'Student not found. Try manual entry for external students.');
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -591,18 +621,72 @@ function EventsTab({ events, fetchEvents, students }) {
             </DialogHeader>
             
             <div className="space-y-4">
-              {/* Add Single Student */}
-              <div className="flex gap-2">
-                <Input 
-                  placeholder="Enter student reg no" 
-                  value={studentRegNo} 
-                  onChange={(e) => setStudentRegNo(e.target.value)}
-                  data-testid="event-student-reg-no"
-                />
-                <Button onClick={handleAddStudent} disabled={loading} data-testid="add-student-to-event">
-                  Add
+              {/* Toggle between existing and manual entry */}
+              <div className="flex gap-2 mb-4">
+                <Button 
+                  variant={!manualEntry ? "default" : "secondary"}
+                  onClick={() => setManualEntry(false)}
+                  data-testid="toggle-existing-student"
+                >
+                  PICT Student
+                </Button>
+                <Button 
+                  variant={manualEntry ? "default" : "secondary"}
+                  onClick={() => setManualEntry(true)}
+                  data-testid="toggle-manual-entry"
+                >
+                  External Student
                 </Button>
               </div>
+
+              {/* Add Student - Existing or Manual */}
+              {!manualEntry ? (
+                <div className="flex gap-2">
+                  <Input 
+                    placeholder="Enter PICT student reg no" 
+                    value={studentRegNo} 
+                    onChange={(e) => setStudentRegNo(e.target.value)}
+                    data-testid="event-student-reg-no"
+                  />
+                  <Button onClick={handleAddStudent} disabled={loading} data-testid="add-student-to-event">
+                    Add
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3 p-4 bg-slate-50 rounded-lg">
+                  <p className="text-sm font-medium text-slate-700">Add External College Student</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Input 
+                      placeholder="Reg No (e.g., EXT001)" 
+                      value={manualStudentData.reg_no} 
+                      onChange={(e) => setManualStudentData({...manualStudentData, reg_no: e.target.value})}
+                      data-testid="manual-reg-no"
+                    />
+                    <Input 
+                      placeholder="Full Name" 
+                      value={manualStudentData.name} 
+                      onChange={(e) => setManualStudentData({...manualStudentData, name: e.target.value})}
+                      data-testid="manual-name"
+                    />
+                    <Input 
+                      placeholder="Email" 
+                      type="email"
+                      value={manualStudentData.email} 
+                      onChange={(e) => setManualStudentData({...manualStudentData, email: e.target.value})}
+                      data-testid="manual-email"
+                    />
+                    <Input 
+                      placeholder="Mobile" 
+                      value={manualStudentData.mobile_no} 
+                      onChange={(e) => setManualStudentData({...manualStudentData, mobile_no: e.target.value})}
+                      data-testid="manual-mobile"
+                    />
+                  </div>
+                  <Button onClick={handleAddStudent} disabled={loading} className="w-full" data-testid="add-manual-student">
+                    Add External Student
+                  </Button>
+                </div>
+              )}
 
               {/* Bulk Add */}
               <div className="p-4 bg-slate-50 rounded-lg">
@@ -614,7 +698,11 @@ function EventsTab({ events, fetchEvents, students }) {
                     Upload
                   </Button>
                 </div>
-                <p className="text-xs text-slate-500 mt-2">Format: Reg No (one per row)</p>
+                <p className="text-xs text-slate-500 mt-2">
+                  Format: Reg No | Name (optional) | Email (optional) | Mobile (optional)<br/>
+                  <strong>For PICT students:</strong> Only Reg No needed<br/>
+                  <strong>For external students:</strong> Provide all 4 fields
+                </p>
               </div>
 
               {/* Students Table */}

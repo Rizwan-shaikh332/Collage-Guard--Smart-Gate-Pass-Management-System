@@ -114,7 +114,7 @@ export default function Home() {
       <footer className="border-t border-white/10 mt-20">
         <div className="container mx-auto px-6 py-8">
           <p className="text-center text-slate-400">
-            © 2026 PICT Guard. All rights reserved.
+            © 2026 PICT Guard - Smart Gate Pass Management System. All rights reserved.
           </p>
         </div>
       </footer>

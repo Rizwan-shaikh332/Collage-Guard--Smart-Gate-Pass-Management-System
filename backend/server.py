@@ -386,12 +386,19 @@ async def get_events():
     events = await db.events.find({}, {"_id": 0}).to_list(1000)
     return events
 
+class EventStudentManualCreate(BaseModel):
+    event_id: str
+    reg_no: str
+    name: str
+    email: EmailStr
+    mobile_no: str
+
 @api_router.post("/events/students")
 async def add_student_to_event(data: EventStudentCreate):
     # Get student details
     student = await db.students.find_one({"reg_no": data.reg_no}, {"_id": 0})
     if not student:
-        raise HTTPException(status_code=404, detail="Student not found")
+        raise HTTPException(status_code=404, detail="Student not found in database. Use manual entry for external students.")
     
     # Get event details
     event = await db.events.find_one({"event_id": data.event_id}, {"_id": 0})
@@ -421,6 +428,36 @@ async def add_student_to_event(data: EventStudentCreate):
     
     return {"success": True, "message": "Student added to event and email sent"}
 
+@api_router.post("/events/students/manual")
+async def add_manual_student_to_event(data: EventStudentManualCreate):
+    # Get event details
+    event = await db.events.find_one({"event_id": data.event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    
+    # Create event student entry with manual data
+    event_student = EventStudent(
+        event_id=data.event_id,
+        reg_no=data.reg_no,
+        name=data.name,
+        email=data.email,
+        mobile_no=data.mobile_no,
+        valid_from=event["date_from"],
+        valid_to=event["date_to"]
+    )
+    
+    await db.event_students.insert_one(event_student.model_dump())
+    
+    # Send QR email
+    await send_qr_email(
+        event_student.email,
+        event_student.name,
+        event_student.token,
+        event_student.valid_to
+    )
+    
+    return {"success": True, "message": "External student added to event and email sent"}
+
 @api_router.post("/events/students/bulk")
 async def bulk_add_students_to_event(event_id: str = Form(...), file: UploadFile = File(...)):
     if not file.filename.endswith(('.xlsx', '.xls')):
@@ -444,21 +481,36 @@ async def bulk_add_students_to_event(event_id: str = Form(...), file: UploadFile
                 continue
             
             reg_no = str(row[0])
-            student = await db.students.find_one({"reg_no": reg_no}, {"_id": 0})
             
-            if not student:
-                errors.append(f"Row {idx}: Student {reg_no} not found")
-                continue
-            
-            event_student = EventStudent(
-                event_id=event_id,
-                reg_no=student["reg_no"],
-                name=student["name"],
-                email=student["email"],
-                mobile_no=student["mobile_no"],
-                valid_from=event["date_from"],
-                valid_to=event["date_to"]
-            )
+            # Check if it's a manual entry (has name, email, mobile in Excel)
+            if len(row) >= 4 and row[1] and row[2] and row[3]:
+                # Manual entry for external students
+                event_student = EventStudent(
+                    event_id=event_id,
+                    reg_no=reg_no,
+                    name=str(row[1]),
+                    email=str(row[2]),
+                    mobile_no=str(row[3]),
+                    valid_from=event["date_from"],
+                    valid_to=event["date_to"]
+                )
+            else:
+                # Try to find in existing students
+                student = await db.students.find_one({"reg_no": reg_no}, {"_id": 0})
+                
+                if not student:
+                    errors.append(f"Row {idx}: Student {reg_no} not found and no manual data provided")
+                    continue
+                
+                event_student = EventStudent(
+                    event_id=event_id,
+                    reg_no=student["reg_no"],
+                    name=student["name"],
+                    email=student["email"],
+                    mobile_no=student["mobile_no"],
+                    valid_from=event["date_from"],
+                    valid_to=event["date_to"]
+                )
             
             await db.event_students.insert_one(event_student.model_dump())
             
@@ -492,6 +544,11 @@ async def register_visitor(data: Visitor):
     
     return data
 
+@api_router.get("/visitors", response_model=List[Visitor])
+async def get_visitors():
+    visitors = await db.visitors.find({}, {"_id": 0}).to_list(1000)
+    return visitors
+
 @api_router.post("/alumni", response_model=Alumni)
 async def register_alumni(data: Alumni):
     await db.alumni.insert_one(data.model_dump())
@@ -500,6 +557,11 @@ async def register_alumni(data: Alumni):
     await send_qr_email(data.email, data.name, data.token, data.valid_till)
     
     return data
+
+@api_router.get("/alumni", response_model=List[Alumni])
+async def get_alumni():
+    alumni = await db.alumni.find({}, {"_id": 0}).to_list(1000)
+    return alumni
 
 # ============ QR VALIDATION ============
 

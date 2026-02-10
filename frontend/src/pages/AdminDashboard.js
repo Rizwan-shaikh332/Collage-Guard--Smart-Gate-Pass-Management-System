@@ -734,6 +734,146 @@ function EventsTab({ events, fetchEvents, students }) {
           </DialogContent>
         </Dialog>
       )}
+
+
+// Visitors Tab Component
+function VisitorsTab() {
+  const [visitors, setVisitors] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    fetchVisitors();
+  }, []);
+
+  const fetchVisitors = async () => {
+    setLoading(true);
+    try {
+      const response = await axios.get(`${BACKEND_URL}/api/visitors`);
+      setVisitors(response.data);
+    } catch (error) {
+      toast.error('Failed to fetch visitors');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-6">
+      <div className="flex justify-between items-center mb-6">
+        <h3 className="text-xl font-semibold text-slate-900">Visitors</h3>
+        <Button onClick={fetchVisitors} variant="secondary" disabled={loading}>
+          Refresh
+        </Button>
+      </div>
+
+      <div className="overflow-x-auto" data-testid="visitors-table">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Email</TableHead>
+              <TableHead>Mobile</TableHead>
+              <TableHead>Person to Visit</TableHead>
+              <TableHead>Purpose</TableHead>
+              <TableHead>Valid Till</TableHead>
+              <TableHead>Registered</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {visitors.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center text-slate-500">No visitors found</TableCell>
+              </TableRow>
+            ) : (
+              visitors.map((visitor) => (
+                <TableRow key={visitor.token}>
+                  <TableCell>{visitor.name}</TableCell>
+                  <TableCell>{visitor.email}</TableCell>
+                  <TableCell>{visitor.mobile_no}</TableCell>
+                  <TableCell>{visitor.person_to_visit}</TableCell>
+                  <TableCell>{visitor.purpose}</TableCell>
+                  <TableCell>{new Date(visitor.valid_till).toLocaleString()}</TableCell>
+                  <TableCell>{new Date(visitor.created_at).toLocaleString()}</TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
+// Alumni Tab Component
+function AlumniTab() {
+  const [alumni, setAlumni] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    fetchAlumni();
+  }, []);
+
+  const fetchAlumni = async () => {
+    setLoading(true);
+    try {
+      const response = await axios.get(`${BACKEND_URL}/api/alumni`);
+      setAlumni(response.data);
+    } catch (error) {
+      toast.error('Failed to fetch alumni');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-6">
+      <div className="flex justify-between items-center mb-6">
+        <h3 className="text-xl font-semibold text-slate-900">Alumni</h3>
+        <Button onClick={fetchAlumni} variant="secondary" disabled={loading}>
+          Refresh
+        </Button>
+      </div>
+
+      <div className="overflow-x-auto" data-testid="alumni-table">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Email</TableHead>
+              <TableHead>Mobile</TableHead>
+              <TableHead>Department</TableHead>
+              <TableHead>Company</TableHead>
+              <TableHead>Position</TableHead>
+              <TableHead>CTC (Monthly)</TableHead>
+              <TableHead>Valid Till</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {alumni.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={8} className="text-center text-slate-500">No alumni found</TableCell>
+              </TableRow>
+            ) : (
+              alumni.map((alum) => (
+                <TableRow key={alum.token}>
+                  <TableCell>{alum.name}</TableCell>
+                  <TableCell>{alum.email}</TableCell>
+                  <TableCell>{alum.mobile_no}</TableCell>
+                  <TableCell>{alum.college_department}</TableCell>
+                  <TableCell>{alum.current_company}</TableCell>
+                  <TableCell>{alum.job_position}</TableCell>
+                  <TableCell>{alum.ctc_monthly}</TableCell>
+                  <TableCell>{new Date(alum.valid_till).toLocaleString()}</TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
     </div>
   );
 }

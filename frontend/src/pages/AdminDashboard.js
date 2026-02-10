@@ -136,6 +136,8 @@ export default function AdminDashboard() {
             <TabsTrigger value="students" data-testid="tab-students">Students</TabsTrigger>
             <TabsTrigger value="faculty" data-testid="tab-faculty">Faculty</TabsTrigger>
             <TabsTrigger value="events" data-testid="tab-events">Events</TabsTrigger>
+            <TabsTrigger value="visitors" data-testid="tab-visitors">Visitors</TabsTrigger>
+            <TabsTrigger value="alumni" data-testid="tab-alumni">Alumni</TabsTrigger>
           </TabsList>
 
           <TabsContent value="students">
@@ -148,6 +150,14 @@ export default function AdminDashboard() {
 
           <TabsContent value="events">
             <EventsTab events={events} fetchEvents={fetchEvents} students={students} />
+          </TabsContent>
+
+          <TabsContent value="visitors">
+            <VisitorsTab />
+          </TabsContent>
+
+          <TabsContent value="alumni">
+            <AlumniTab />
           </TabsContent>
         </Tabs>
       </div>

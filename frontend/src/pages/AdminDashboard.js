@@ -875,7 +875,3 @@ function AlumniTab() {
     </div>
   );
 }
-
-    </div>
-  );
-}

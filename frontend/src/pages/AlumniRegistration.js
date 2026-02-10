@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Webcam from 'react-webcam';
-import QRCode from 'qrcode.react';
+import { QRCodeSVG } from 'qrcode.react';
 import { Camera, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -341,7 +341,7 @@ export default function AlumniRegistration() {
             <p className="text-slate-600 mb-8">Your gate pass has been generated and sent to your email.</p>
 
             <div className="bg-white p-6 rounded-lg border border-slate-200 inline-block mb-6" data-testid="alumni-qr">
-              <QRCode value={registrationData.token} size={200} level="H" />
+              <QRCodeSVG value={registrationData.token} size={200} level="H" />
             </div>
 
             <div className="mb-6">

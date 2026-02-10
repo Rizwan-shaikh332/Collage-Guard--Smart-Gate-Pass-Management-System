@@ -734,7 +734,9 @@ function EventsTab({ events, fetchEvents, students }) {
           </DialogContent>
         </Dialog>
       )}
-
+    </div>
+  );
+}
 
 // Visitors Tab Component
 function VisitorsTab() {

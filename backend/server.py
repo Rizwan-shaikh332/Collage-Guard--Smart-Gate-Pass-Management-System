@@ -14,9 +14,12 @@ import qrcode
 import io
 import base64
 import openpyxl
-import resend
 import asyncio
 from passlib.context import CryptContext
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.image import MIMEImage
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -26,9 +29,11 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-# Resend setup
-resend.api_key = os.getenv('RESEND_API_KEY', '')
-SENDER_EMAIL = os.getenv('SENDER_EMAIL', 'onboarding@resend.dev')
+# Gmail SMTP setup
+SENDER_EMAIL = os.getenv('SENDER_EMAIL', 'rudranishinde3101@gmail.com')
+GMAIL_PASSWORD = os.getenv('GMAIL_PASSWORD', '')  # App-specific password, not regular password
+GMAIL_SMTP_SERVER = 'smtp.gmail.com'
+GMAIL_SMTP_PORT = 587
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -68,31 +73,64 @@ class Faculty(BaseModel):
 
 class Visitor(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    name: str
+    full_name: str
+    phone_number: str
     email: EmailStr
-    mobile_no: str
-    person_to_visit: str
-    photo_base64: Optional[str] = None
+    gender: str  # 'Male', 'Female', 'Other'
+    date_of_birth: str
+    id_type: str  # 'Aadhar Card', 'Passport', 'Driving License', etc.
+    id_number: str
+    id_proof_base64: Optional[str] = None
+    visitor_type: str  # 'student', 'faculty', 'visitor', 'worker'
+    person_to_visit_id: Optional[str] = None  # ID of student/faculty to visit
+    person_to_visit_name: Optional[str] = None  # Name of person to visit
+    person_to_visit_mobile: Optional[str] = None  # Mobile of person to visit
     purpose: str
+    photo_base64: Optional[str] = None
     token: str = Field(default_factory=lambda: str(uuid.uuid4()))
     valid_till: str = Field(default_factory=lambda: (datetime.now(timezone.utc) + timedelta(days=1)).isoformat())
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 class Alumni(BaseModel):
     model_config = ConfigDict(extra="ignore")
+    first_name: str
+    middle_name: Optional[str] = None
+    last_name: str
+    email: EmailStr
+    secondary_email: Optional[str] = None
+    mobile_no: str
+    secondary_phone: Optional[str] = None
+    enrollment_number: str
+    degree: str
+    department: str
+    address: str
+    designation: str
+    company: str
+    year_of_passing: str
+    year_of_joining: str
+    sub_institute: str
+    linkedin_profile: Optional[str] = None  # Additional field - professional profile link
+    whom_to_meet: str  # 'faculty', 'student', 'visitor'
+    selected_person_id: Optional[str] = None  # ID of selected faculty/student
+    selected_person_name: Optional[str] = None  # Name of selected faculty/student
+    selected_person_mobile: Optional[str] = None  # Mobile of selected faculty/student
+    photo_base64: Optional[str] = None
+    token: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    valid_till: str = Field(default_factory=lambda: (datetime.now(timezone.utc) + timedelta(days=1)).isoformat())
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+class FacultyRegisteredVisitor(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    visitor_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    faculty_id: str  # The faculty who registered this visitor
+    visitor_type: str  # 'HR', 'Relative', 'Other Faculty', 'Student', 'Other'
     name: str
     email: EmailStr
     mobile_no: str
-    college_department: str
-    photo_base64: Optional[str] = None
-    purpose: str
-    current_company: str
-    job_position: str
-    specialization: str
-    ctc_monthly: str
-    other_details: Optional[str] = None
+    date_from: str  # Date visitor is allowed from
+    date_to: str    # Date visitor is allowed until
+    valid_till: str  # QR code validity
     token: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    valid_till: str = Field(default_factory=lambda: (datetime.now(timezone.utc) + timedelta(days=1)).isoformat())
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 class Event(BaseModel):
@@ -173,11 +211,19 @@ def calculate_student_validity(current_year: int) -> str:
 
 async def get_next_faculty_id() -> str:
     """Generate next faculty ID in format fact_0001"""
-    last_faculty = await db.faculty.find_one(sort=[("created_at", -1)], projection={"_id": 0, "faculty_id": 1})
-    if not last_faculty:
+    # Find the highest faculty_id number across all records
+    result = await db.faculty.find_one(
+        {},
+        sort=[("faculty_id", -1)],
+        projection={"_id": 0, "faculty_id": 1}
+    )
+    if not result:
         return "fact_0001"
-    last_id = last_faculty.get("faculty_id", "fact_0000")
-    num = int(last_id.split("_")[1]) + 1
+    last_id = result.get("faculty_id", "fact_0000")
+    try:
+        num = int(last_id.split("_")[1]) + 1
+    except (ValueError, IndexError):
+        num = 1
     return f"fact_{num:04d}"
 
 def generate_qr_code(token: str) -> str:
@@ -193,41 +239,77 @@ def generate_qr_code(token: str) -> str:
     return base64.b64encode(buffer.read()).decode()
 
 async def send_qr_email(recipient_email: str, name: str, token: str, valid_till: str):
-    """Send QR code via email"""
-    if not resend.api_key:
-        logger.warning("Resend API key not configured")
-        return
+    """Send QR code via Gmail SMTP"""
+    if not GMAIL_PASSWORD:
+        logger.warning("Gmail password not configured in .env file")
+        return False
+    
+    # Validate recipient email
+    if not recipient_email or "@" not in recipient_email:
+        logger.error(f"Invalid recipient email: {recipient_email}")
+        return False
     
     qr_base64 = generate_qr_code(token)
     
     html_content = f"""
     <html>
-        <body style="font-family: Arial, sans-serif; padding: 20px;">
-            <h2>PICT Guard - Your Gate Pass</h2>
-            <p>Hello {name},</p>
-            <p>Your gate pass has been generated successfully.</p>
-            <p><strong>Valid Until:</strong> {valid_till}</p>
-            <div style="text-align: center; margin: 30px 0;">
-                <img src="data:image/png;base64,{qr_base64}" alt="QR Code" style="max-width: 300px;"/>
+        <body style="font-family: Arial, sans-serif; padding: 20px; background-color: #f5f5f5;">
+            <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <h2 style="color: #333; border-bottom: 3px solid #007bff; padding-bottom: 10px;">PICT Guard - Your Gate Pass</h2>
+                <p style="color: #555; font-size: 16px;">Hello {name},</p>
+                <p style="color: #555; font-size: 14px;">Your gate pass has been generated successfully. Please find your QR code below:</p>
+                <p style="color: #888; font-size: 12px;"><strong>Valid Until:</strong> {valid_till}</p>
+                <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #f9f9f9; border-radius: 5px;">
+                    <img src="cid:qrcode" alt="QR Code" style="max-width: 300px; border: 2px solid #ddd; padding: 10px;"/>
+                </div>
+                <p style="color: #555; font-size: 14px;"><strong>Instructions:</strong> Please show this QR code at the gate for entry.</p>
+                <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
+                <p style="color: #888; font-size: 12px;">Best regards,<br><strong>PICT Guard Team</strong></p>
             </div>
-            <p>Please show this QR code at the gate for entry.</p>
-            <p>Best regards,<br>PICT Guard Team</p>
         </body>
     </html>
     """
     
-    params = {
-        "from": SENDER_EMAIL,
-        "to": [recipient_email],
-        "subject": "PICT Guard - Your Gate Pass QR Code",
-        "html": html_content
-    }
-    
     try:
-        await asyncio.to_thread(resend.Emails.send, params)
-        logger.info(f"Email sent to {recipient_email}")
+        logger.info(f"Attempting to send email from {SENDER_EMAIL} to {recipient_email}")
+        
+        # Create message
+        msg = MIMEMultipart('related')
+        msg['Subject'] = "PICT Guard - Your Gate Pass QR Code"
+        msg['From'] = SENDER_EMAIL
+        msg['To'] = recipient_email
+        
+        # Attach HTML content
+        msg_alternative = MIMEMultipart('alternative')
+        msg.attach(msg_alternative)
+        msg_alternative.attach(MIMEText(html_content, 'html'))
+        
+        # Attach QR code image
+        qr_image = MIMEImage(base64.b64decode(qr_base64), name='qrcode.png')
+        qr_image.add_header('Content-ID', '<qrcode>')
+        qr_image.add_header('Content-Disposition', 'inline', filename='qrcode.png')
+        msg.attach(qr_image)
+        
+        # Send email via Gmail SMTP
+        def send_email():
+            try:
+                with smtplib.SMTP(GMAIL_SMTP_SERVER, GMAIL_SMTP_PORT) as server:
+                    server.starttls()
+                    server.login(SENDER_EMAIL, GMAIL_PASSWORD)
+                    server.send_message(msg)
+                    return True
+            except Exception as e:
+                logger.error(f"SMTP Error: {str(e)}")
+                raise
+        
+        await asyncio.to_thread(send_email)
+        logger.info(f"Email sent successfully to {recipient_email}")
+        return True
     except Exception as e:
-        logger.error(f"Failed to send email: {str(e)}")
+        logger.error(f"Failed to send email to {recipient_email}: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return False
 
 # ============ AUTH ROUTES ============
 
@@ -288,26 +370,75 @@ async def bulk_create_students(file: UploadFile = File(...)):
     ws = wb.active
     
     students_created = 0
+    duplicates = []
     errors = []
     
     for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
         try:
-            if not row[0]:  # Skip empty rows
+            if not row or not row[0]:  # Skip empty rows
                 continue
             
-            data = StudentCreate(
-                reg_no=str(row[0]),
-                name=str(row[1]),
-                email=str(row[2]),
-                mobile_no=str(row[3]),
-                dob=str(row[4]),
-                current_year=int(row[5])
-            )
+            # Handle both cases: with and without Student ID column
+            # If 7 columns, assume first is Student ID (auto-generated, ignore it)
+            # If 6 columns, use all as: RegNo, Name, Email, Mobile, DOB, Year
+            col_offset = 0
+            if len(row) >= 7 and row[0]:  # Might have Student ID in first column
+                col_offset = 1
+                actual_rows = row[1:]
+            else:
+                actual_rows = row
             
-            # Check if exists
-            existing = await db.students.find_one({"reg_no": data.reg_no}, {"_id": 0})
+            # Validate we have the required 6 columns
+            if len(actual_rows) < 6:
+                errors.append(f"Row {idx}: Missing required columns (need 6: RegNo, Name, Email, Mobile, DOB, Year)")
+                logger.error(f"Row {idx} column count: {len(actual_rows)}, raw row length: {len(row)}")
+                continue
+            
+            # Check for None/empty values
+            if not actual_rows[0] or not actual_rows[1] or not actual_rows[2] or not actual_rows[3] or not actual_rows[4] or not actual_rows[5]:
+                missing_fields = []
+                field_names = ["RegNo", "Name", "Email", "Mobile", "DOB", "Year"]
+                for i, val in enumerate(actual_rows[:6]):
+                    if not val:
+                        missing_fields.append(field_names[i])
+                errors.append(f"Row {idx}: Missing required field(s): {', '.join(missing_fields)}")
+                continue
+            
+            try:
+                # Validate Year field specifically - must be integer 1-4
+                try:
+                    year_val = int(actual_rows[5])
+                    if year_val < 1 or year_val > 4:
+                        errors.append(f"Row {idx}: Year must be 1, 2, 3, or 4. Got: {actual_rows[5]}")
+                        continue
+                except ValueError:
+                    errors.append(f"Row {idx}: Year field (column 6) must be a number (1-4), not '{actual_rows[5]}'")
+                    continue
+                
+                data = StudentCreate(
+                    reg_no=str(actual_rows[0]).strip(),
+                    name=str(actual_rows[1]).strip(),
+                    email=str(actual_rows[2]).strip(),
+                    mobile_no=str(actual_rows[3]).strip(),
+                    dob=str(actual_rows[4]).strip(),
+                    current_year=year_val
+                )
+            except Exception as validation_error:
+                errors.append(f"Row {idx}: Invalid data format - {str(validation_error)}")
+                logger.error(f"Row {idx} validation error: {str(validation_error)}")
+                continue
+            
+            # Check if exists by reg_no, email, or mobile_no
+            existing = await db.students.find_one(
+                {"$or": [
+                    {"reg_no": data.reg_no},
+                    {"email": data.email},
+                    {"mobile_no": data.mobile_no}
+                ]},
+                {"_id": 0}
+            )
             if existing:
-                errors.append(f"Row {idx}: Student {data.reg_no} already exists")
+                duplicates.append(f"Row {idx}: {data.reg_no} (Email/Mobile/RegNo already exists)")
                 continue
             
             valid_till = calculate_student_validity(data.current_year)
@@ -315,9 +446,18 @@ async def bulk_create_students(file: UploadFile = File(...)):
             await db.students.insert_one(student.model_dump())
             students_created += 1
         except Exception as e:
-            errors.append(f"Row {idx}: {str(e)}")
+            error_msg = f"Row {idx}: {str(e)}"
+            errors.append(error_msg)
+            logger.error(error_msg)
     
-    return {"success": True, "created": students_created, "errors": errors}
+    return {
+        "success": True, 
+        "created": students_created, 
+        "duplicates": len(duplicates), 
+        "duplicate_details": duplicates,
+        "error_count": len(errors),
+        "error_details": errors  # Show detailed error list
+    }
 
 @api_router.get("/students", response_model=List[Student])
 async def get_students():
@@ -343,30 +483,98 @@ async def bulk_create_faculty(file: UploadFile = File(...)):
     ws = wb.active
     
     faculty_created = 0
+    duplicates = []
     errors = []
+    
+    # Get the highest existing faculty_id to ensure no duplicates in this batch
+    last_result = await db.faculty.find_one(
+        {},
+        sort=[("faculty_id", -1)],
+        projection={"faculty_id": 1}
+    )
+    try:
+        last_num = int(last_result["faculty_id"].split("_")[1]) if last_result else 0
+    except (ValueError, IndexError, TypeError):
+        last_num = 0
+    
+    next_id_num = last_num + 1
     
     for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
         try:
-            if not row[0]:  # Skip empty rows
+            if not row or not row[0]:  # Skip empty rows
                 continue
             
-            data = FacultyCreate(
-                name=str(row[0]),
-                email=str(row[1]),
-                mobile_no=str(row[2]),
-                department=str(row[3]),
-                profession=str(row[4]),
-                valid_till=str(row[5])
-            )
+            # Handle both cases: with and without Faculty ID column
+            # If 7 columns, assume first is Faculty ID (auto-generated, ignore it)
+            # If 6 columns, use all as: Name, Email, Mobile, Department, Profession, Valid Till
+            col_offset = 0
+            if len(row) >= 7 and row[0]:  # Might have Faculty ID in first column
+                col_offset = 1
+                actual_rows = row[1:]
+            else:
+                actual_rows = row
             
-            faculty_id = await get_next_faculty_id()
+            # Validate we have the required 6 columns
+            if len(actual_rows) < 6:
+                errors.append(f"Row {idx}: Missing required columns (need 6: Name, Email, Mobile, Department, Profession, Valid Till)")
+                logger.error(f"Row {idx} column count: {len(actual_rows)}, raw row length: {len(row)}")
+                continue
+            
+            # Check for None/empty values
+            if not actual_rows[0] or not actual_rows[1] or not actual_rows[2] or not actual_rows[3] or not actual_rows[4] or not actual_rows[5]:
+                missing_fields = []
+                field_names = ["Name", "Email", "Mobile", "Department", "Profession", "Valid Till"]
+                for i, val in enumerate(actual_rows[:6]):
+                    if not val:
+                        missing_fields.append(field_names[i])
+                errors.append(f"Row {idx}: Missing required field(s): {', '.join(missing_fields)}")
+                continue
+            
+            try:
+                data = FacultyCreate(
+                    name=str(actual_rows[0]).strip(),
+                    email=str(actual_rows[1]).strip(),
+                    mobile_no=str(actual_rows[2]).strip(),
+                    department=str(actual_rows[3]).strip(),
+                    profession=str(actual_rows[4]).strip(),
+                    valid_till=str(actual_rows[5]).strip()
+                )
+            except Exception as validation_error:
+                errors.append(f"Row {idx}: Invalid data format - {str(validation_error)}")
+                logger.error(f"Row {idx} validation error: {str(validation_error)}")
+                continue
+            
+            # Check if exists by email or mobile_no
+            existing = await db.faculty.find_one(
+                {"$or": [
+                    {"email": data.email},
+                    {"mobile_no": data.mobile_no}
+                ]},
+                {"_id": 0}
+            )
+            if existing:
+                duplicates.append(f"Row {idx}: {data.name} (Email/Mobile already exists)")
+                continue
+            
+            # Use the local counter to generate unique IDs
+            faculty_id = f"fact_{next_id_num:04d}"
+            next_id_num += 1
             faculty = Faculty(**data.model_dump(), faculty_id=faculty_id)
             await db.faculty.insert_one(faculty.model_dump())
             faculty_created += 1
         except Exception as e:
-            errors.append(f"Row {idx}: {str(e)}")
+            error_msg = f"Row {idx}: {str(e)}"
+            errors.append(error_msg)
+            logger.error(error_msg)
     
-    return {"success": True, "created": faculty_created, "errors": errors}
+    return {
+        "success": True, 
+        "created": faculty_created, 
+        "duplicates": len(duplicates), 
+        "duplicate_details": duplicates, 
+        "error_count": len(errors),
+        "error_details": errors  # Show detailed error list
+    }
 
 @api_router.get("/faculty", response_model=List[Faculty])
 async def get_faculty():
@@ -473,44 +681,67 @@ async def bulk_add_students_to_event(event_id: str = Form(...), file: UploadFile
     ws = wb.active
     
     students_added = 0
+    duplicates = []
     errors = []
     
     for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
         try:
-            if not row[0]:  # Skip empty rows
+            if not row or not row[0]:  # Skip empty rows
                 continue
             
-            reg_no = str(row[0])
+            reg_no = str(row[0]).strip()
+            email = str(row[2]).strip() if len(row) >= 3 and row[2] else None
             
             # Check if it's a manual entry (has name, email, mobile in Excel)
             if len(row) >= 4 and row[1] and row[2] and row[3]:
                 # Manual entry for external students
-                event_student = EventStudent(
-                    event_id=event_id,
-                    reg_no=reg_no,
-                    name=str(row[1]),
-                    email=str(row[2]),
-                    mobile_no=str(row[3]),
-                    valid_from=event["date_from"],
-                    valid_to=event["date_to"]
-                )
+                try:
+                    event_student = EventStudent(
+                        event_id=event_id,
+                        reg_no=reg_no,
+                        name=str(row[1]).strip(),
+                        email=str(row[2]).strip(),
+                        mobile_no=str(row[3]).strip(),
+                        valid_from=event["date_from"],
+                        valid_to=event["date_to"]
+                    )
+                    email = str(row[2]).strip()
+                except Exception as validation_error:
+                    errors.append(f"Row {idx}: Invalid manual entry format - {str(validation_error)}")
+                    logger.error(f"Row {idx} validation error: {str(validation_error)}")
+                    continue
             else:
                 # Try to find in existing students
                 student = await db.students.find_one({"reg_no": reg_no}, {"_id": 0})
                 
                 if not student:
-                    errors.append(f"Row {idx}: Student {reg_no} not found and no manual data provided")
+                    errors.append(f"Row {idx}: Student {reg_no} not found in database and no manual data provided")
                     continue
                 
-                event_student = EventStudent(
-                    event_id=event_id,
-                    reg_no=student["reg_no"],
-                    name=student["name"],
-                    email=student["email"],
-                    mobile_no=student["mobile_no"],
-                    valid_from=event["date_from"],
-                    valid_to=event["date_to"]
-                )
+                try:
+                    event_student = EventStudent(
+                        event_id=event_id,
+                        reg_no=student["reg_no"],
+                        name=student["name"],
+                        email=student["email"],
+                        mobile_no=student["mobile_no"],
+                        valid_from=event["date_from"],
+                        valid_to=event["date_to"]
+                    )
+                    email = student["email"]
+                except Exception as validation_error:
+                    errors.append(f"Row {idx}: Error creating event student - {str(validation_error)}")
+                    logger.error(f"Row {idx} validation error: {str(validation_error)}")
+                    continue
+            
+            # Check if already added to this event
+            existing = await db.event_students.find_one(
+                {"event_id": event_id, "email": email},
+                {"_id": 0}
+            )
+            if existing:
+                duplicates.append(f"Row {idx}: {reg_no} (Already added to this event)")
+                continue
             
             await db.event_students.insert_one(event_student.model_dump())
             
@@ -524,14 +755,50 @@ async def bulk_add_students_to_event(event_id: str = Form(...), file: UploadFile
             
             students_added += 1
         except Exception as e:
-            errors.append(f"Row {idx}: {str(e)}")
+            error_msg = f"Row {idx}: {str(e)}"
+            errors.append(error_msg)
+            logger.error(error_msg)
     
-    return {"success": True, "added": students_added, "errors": errors}
+    return {
+        "success": True, 
+        "added": students_added, 
+        "duplicates": len(duplicates), 
+        "duplicate_details": duplicates,
+        "error_count": len(errors),
+        "error_details": errors  # Show detailed error list
+    }
 
 @api_router.get("/events/{event_id}/students", response_model=List[EventStudent])
 async def get_event_students(event_id: str):
     students = await db.event_students.find({"event_id": event_id}, {"_id": 0}).to_list(1000)
     return students
+
+# ============ SEARCH ROUTES FOR ALUMNI ============
+
+@api_router.get("/search/faculty")
+async def search_faculty(query: str):
+    """Search faculty by name or mobile number"""
+    search_filter = {
+        "$or": [
+            {"name": {"$regex": query, "$options": "i"}},
+            {"mobile_no": {"$regex": query, "$options": "i"}}
+        ]
+    }
+    results = await db.faculty.find(search_filter, {"_id": 0}).to_list(100)
+    return results
+
+@api_router.get("/search/students")
+async def search_students(query: str):
+    """Search students by name, mobile number, or reg_no (GRN)"""
+    search_filter = {
+        "$or": [
+            {"name": {"$regex": query, "$options": "i"}},
+            {"mobile_no": {"$regex": query, "$options": "i"}},
+            {"reg_no": {"$regex": query, "$options": "i"}}
+        ]
+    }
+    results = await db.students.find(search_filter, {"_id": 0}).to_list(100)
+    return results
 
 # ============ VISITOR & ALUMNI ROUTES ============
 
@@ -539,29 +806,163 @@ async def get_event_students(event_id: str):
 async def register_visitor(data: Visitor):
     await db.visitors.insert_one(data.model_dump())
     
-    # Send QR email
-    await send_qr_email(data.email, data.name, data.token, data.valid_till)
+    # Send QR email with full_name
+    await send_qr_email(data.email, data.full_name, data.token, data.valid_till)
     
     return data
 
-@api_router.get("/visitors", response_model=List[Visitor])
+@api_router.get("/visitors")
 async def get_visitors():
-    visitors = await db.visitors.find({}, {"_id": 0}).to_list(1000)
-    return visitors
+    try:
+        visitors = await db.visitors.find({}, {"_id": 0}).to_list(1000)
+        return visitors if visitors else []
+    except Exception as e:
+        logger.error(f"Error fetching visitors: {str(e)}")
+        return []
+
+@api_router.get("/visitors/meeting/{person_id}")
+async def get_visitor_meetings(person_id: str):
+    """Get all visitors coming to meet a specific student/faculty"""
+    try:
+        visitors = await db.visitors.find(
+            {"person_to_visit_id": person_id},
+            {"_id": 0}
+        ).to_list(1000)
+        return visitors if visitors else []
+    except Exception as e:
+        logger.error(f"Error fetching visitor meetings: {str(e)}")
+        return []
+
+@api_router.get("/alumni/meeting/{person_id}")
+async def get_alumni_meetings(person_id: str):
+    """Get all alumni coming to meet a specific student/faculty"""
+    try:
+        alumni = await db.alumni.find(
+            {"selected_person_id": person_id},
+            {"_id": 0}
+        ).to_list(1000)
+        return alumni if alumni else []
+    except Exception as e:
+        logger.error(f"Error fetching alumni meetings: {str(e)}")
+        return []
 
 @api_router.post("/alumni", response_model=Alumni)
 async def register_alumni(data: Alumni):
     await db.alumni.insert_one(data.model_dump())
     
+    # Construct full name from first_name and last_name
+    full_name = f"{data.first_name} {data.last_name}".strip()
+    
     # Send QR email
-    await send_qr_email(data.email, data.name, data.token, data.valid_till)
+    await send_qr_email(data.email, full_name, data.token, data.valid_till)
     
     return data
 
-@api_router.get("/alumni", response_model=List[Alumni])
+@api_router.get("/alumni")
 async def get_alumni():
-    alumni = await db.alumni.find({}, {"_id": 0}).to_list(1000)
-    return alumni
+    try:
+        alumni = await db.alumni.find({}, {"_id": 0}).to_list(1000)
+        return alumni if alumni else []
+    except Exception as e:
+        logger.error(f"Error fetching alumni: {str(e)}")
+        return []
+
+@api_router.get("/alumni/meeting/{person_id}")
+async def get_alumni_meetings(person_id: str):
+    """Get all alumni coming to meet a specific student/faculty"""
+    try:
+        alumni = await db.alumni.find(
+            {"selected_person_id": person_id},
+            {"_id": 0}
+        ).to_list(1000)
+        return alumni if alumni else []
+    except Exception as e:
+        logger.error(f"Error fetching alumni meetings: {str(e)}")
+        return []
+
+# ============ FACULTY REGISTERED VISITORS ============
+
+@api_router.post("/faculty/register-visitor", response_model=FacultyRegisteredVisitor)
+async def faculty_register_visitor(data: FacultyRegisteredVisitor):
+    """Faculty registers a visitor (HR, Relative, Other Faculty, Student, Other)"""
+    try:
+        # Check if visitor already registered by this faculty (by email or mobile)
+        existing_visitor = await db.faculty_registered_visitors.find_one(
+            {
+                "faculty_id": data.faculty_id,
+                "$or": [
+                    {"email": data.email},
+                    {"mobile_no": data.mobile_no}
+                ]
+            },
+            {"_id": 0}
+        )
+        
+        if existing_visitor:
+            if existing_visitor["email"] == data.email:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Visitor with email '{data.email}' is already registered"
+                )
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Visitor with mobile '{data.mobile_no}' is already registered"
+                )
+        
+        visitor_doc = data.model_dump()
+        await db.faculty_registered_visitors.insert_one(visitor_doc)
+        
+        # Send QR email to the visitor
+        full_name = data.name
+        await send_qr_email(data.email, full_name, data.token, data.valid_till)
+        
+        logger.info(f"Faculty {data.faculty_id} registered visitor: {data.name}")
+        return data
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error registering faculty visitor: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Error registering visitor: {str(e)}")
+
+@api_router.get("/faculty/{faculty_id}/registered-visitors")
+async def get_faculty_registered_visitors(faculty_id: str):
+    """Get all visitors registered by a specific faculty"""
+    try:
+        visitors = await db.faculty_registered_visitors.find(
+            {"faculty_id": faculty_id},
+            {"_id": 0}
+        ).to_list(1000)
+        return visitors if visitors else []
+    except Exception as e:
+        logger.error(f"Error fetching faculty registered visitors: {str(e)}")
+        return []
+
+@api_router.post("/faculty/visitor/resend-email")
+async def resend_visitor_qr_email(data: dict):
+    """Resend QR email to a visitor"""
+    try:
+        visitor_id = data.get("visitor_id")
+        
+        # Find the visitor
+        visitor = await db.faculty_registered_visitors.find_one(
+            {"visitor_id": visitor_id},
+            {"_id": 0}
+        )
+        
+        if not visitor:
+            raise HTTPException(status_code=404, detail="Visitor not found")
+        
+        # Send email
+        success = await send_qr_email(visitor["email"], visitor["name"], visitor["token"], visitor["valid_till"])
+        
+        if success:
+            return {"success": True, "message": f"Email resent to {visitor['email']}"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to send email")
+    except Exception as e:
+        logger.error(f"Error resending email: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
 
 # ============ QR VALIDATION ============
 
@@ -576,63 +977,223 @@ async def validate_qr(data: QRValidate):
         ("faculty", "Faculty"),
         ("visitors", "Visitor"),
         ("alumni", "Alumni"),
-        ("event_students", "Event Student")
+        ("event_students", "Event Student"),
+        ("faculty_registered_visitors", "Registered Visitor")
     ]
     
     for collection_name, user_type in collections:
-        collection = db[collection_name]
-        
-        # Handle event_students with valid_to instead of valid_till
-        if collection_name == "event_students":
+        try:
+            collection = db[collection_name]
             record = await collection.find_one({"token": token}, {"_id": 0})
-            if record:
+            
+            # If record not found in this collection, try next one
+            if not record:
+                continue
+            
+            # Determine which field to use for validity check
+            if collection_name == "event_students":
                 valid_till_str = record.get("valid_to")
-                valid_till = datetime.fromisoformat(valid_till_str.replace("Z", "+00:00"))
-                
-                if now <= valid_till:
-                    return {
-                        "valid": True,
-                        "type": user_type,
-                        "name": record.get("name"),
-                        "email": record.get("email"),
-                        "valid_till": valid_till_str,
-                        "details": record
-                    }
-                else:
-                    return {
-                        "valid": False,
-                        "reason": "QR code expired",
-                        "type": user_type,
-                        "name": record.get("name"),
-                        "expired_on": valid_till_str
-                    }
-        else:
-            record = await collection.find_one({"token": token}, {"_id": 0})
-            if record:
+            else:
                 valid_till_str = record.get("valid_till")
+            
+            # If no validity field, skip this record
+            if not valid_till_str:
+                logger.warning(f"No validity field found for {collection_name} with token {token}")
+                continue
+            
+            # Parse the datetime safely
+            try:
                 valid_till = datetime.fromisoformat(valid_till_str.replace("Z", "+00:00"))
-                
-                if now <= valid_till:
-                    return {
-                        "valid": True,
-                        "type": user_type,
-                        "name": record.get("name"),
-                        "email": record.get("email"),
-                        "valid_till": valid_till_str,
-                        "details": record
-                    }
-                else:
-                    return {
-                        "valid": False,
-                        "reason": "QR code expired",
-                        "type": user_type,
-                        "name": record.get("name"),
-                        "expired_on": valid_till_str
-                    }
+            except Exception as e:
+                logger.error(f"Error parsing datetime for {collection_name}: {str(e)}")
+                continue
+            
+            # Check if token is valid
+            if now <= valid_till:
+                logger.info(f"Token validation successful for {user_type}")
+                return {
+                    "valid": True,
+                    "type": user_type,
+                    "name": record.get("name"),
+                    "email": record.get("email"),
+                    "valid_till": valid_till_str,
+                    "details": record
+                }
+            else:
+                # Token expired
+                logger.info(f"Token expired for {user_type}")
+                return {
+                    "valid": False,
+                    "reason": "QR code expired",
+                    "type": user_type,
+                    "name": record.get("name"),
+                    "expired_on": valid_till_str
+                }
+        except Exception as e:
+            logger.error(f"Error checking {collection_name}: {str(e)}")
+            continue
     
+    logger.warning(f"Token not found: {token}")
     return {"valid": False, "reason": "QR code not found"}
 
+# ============ DEBUG ENDPOINT ============
+
+@api_router.get("/debug/token/{token}")
+async def debug_token(token: str):
+    """Debug endpoint to check if token exists in any collection"""
+    results = {
+        "token": token,
+        "found_in": [],
+        "collections_checked": []
+    }
+    
+    collections = [
+        "students",
+        "faculty",
+        "visitors",
+        "alumni",
+        "event_students",
+        "faculty_registered_visitors"
+    ]
+    
+    for collection_name in collections:
+        try:
+            collection = db[collection_name]
+            record = await collection.find_one({"token": token}, {"_id": 0})
+            
+            results["collections_checked"].append(collection_name)
+            
+            if record:
+                result_entry = {
+                    "collection": collection_name,
+                    "name": record.get("name"),
+                    "email": record.get("email"),
+                }
+                
+                # Check validity fields
+                if "valid_till" in record:
+                    result_entry["validity_field"] = "valid_till"
+                    result_entry["valid_till"] = record.get("valid_till")
+                    result_entry["current_time"] = datetime.now(timezone.utc).isoformat()
+                    try:
+                        valid_till = datetime.fromisoformat(record.get("valid_till").replace("Z", "+00:00"))
+                        result_entry["is_valid"] = datetime.now(timezone.utc) <= valid_till
+                    except Exception as e:
+                        result_entry["is_valid"] = f"Error parsing: {str(e)}"
+                
+                if "valid_to" in record:
+                    result_entry["validity_field"] = "valid_to"
+                    result_entry["valid_to"] = record.get("valid_to")
+                    result_entry["current_time"] = datetime.now(timezone.utc).isoformat()
+                    try:
+                        valid_to = datetime.fromisoformat(record.get("valid_to").replace("Z", "+00:00"))
+                        result_entry["is_valid"] = datetime.now(timezone.utc) <= valid_to
+                    except Exception as e:
+                        result_entry["is_valid"] = f"Error parsing: {str(e)}"
+                
+                results["found_in"].append(result_entry)
+        except Exception as e:
+            logger.error(f"Error checking {collection_name}: {str(e)}")
+    
+    return results
+
 # ============ DASHBOARD ============
+
+@api_router.get("/registered-visitors")
+async def get_all_registered_visitors():
+    """Get all faculty-registered visitors"""
+    visitors = await db.faculty_registered_visitors.find({}, {"_id": 0}).to_list(5000)
+    # Add faculty name for each visitor
+    for visitor in visitors:
+        faculty = await db.faculty.find_one({"faculty_id": visitor["faculty_id"]}, {"_id": 0})
+        if faculty:
+            visitor["faculty_name"] = faculty["name"]
+    return visitors
+
+@api_router.get("/alumni/export")
+async def export_alumni_data(date_range: str = "all"):
+    """Export alumni data as Excel with optional date filtering"""
+    try:
+        # Determine date filter based on date_range parameter
+        filter_query = {}
+        now = datetime.now(timezone.utc)
+        
+        if date_range == "last_month":
+            start_date = (now - timedelta(days=30)).isoformat()
+            filter_query = {"created_at": {"$gte": start_date}}
+        elif date_range == "last_3_months":
+            start_date = (now - timedelta(days=90)).isoformat()
+            filter_query = {"created_at": {"$gte": start_date}}
+        elif date_range == "last_6_months":
+            start_date = (now - timedelta(days=180)).isoformat()
+            filter_query = {"created_at": {"$gte": start_date}}
+        elif date_range == "last_year":
+            start_date = (now - timedelta(days=365)).isoformat()
+            filter_query = {"created_at": {"$gte": start_date}}
+        elif date_range == "last_2_years":
+            start_date = (now - timedelta(days=730)).isoformat()
+            filter_query = {"created_at": {"$gte": start_date}}
+        
+        # Fetch alumni with filter
+        alumni_data = await db.alumni.find(filter_query, {"_id": 0}).to_list(5000)
+        
+        # Create Excel workbook
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Alumni"
+        
+        # Define headers
+        headers = [
+            "First Name", "Middle Name", "Last Name", "Email", "Secondary Email",
+            "Mobile No", "Secondary Phone", "Enrollment Number", "Degree",
+            "Department", "Sub Institute", "Year of Joining", "Year of Passing",
+            "Company", "Designation", "LinkedIn Profile", "Address",
+            "Whom to Meet", "Selected Person Name", "Selected Person Mobile",
+            "Valid Till", "Token"
+        ]
+        
+        # Add headers
+        for col_num, header in enumerate(headers, 1):
+            ws.cell(row=1, column=col_num, value=header)
+        
+        # Add data
+        for row_num, alum in enumerate(alumni_data, 2):
+            ws.cell(row=row_num, column=1, value=alum.get("first_name", ""))
+            ws.cell(row=row_num, column=2, value=alum.get("middle_name", ""))
+            ws.cell(row=row_num, column=3, value=alum.get("last_name", ""))
+            ws.cell(row=row_num, column=4, value=alum.get("email", ""))
+            ws.cell(row=row_num, column=5, value=alum.get("secondary_email", ""))
+            ws.cell(row=row_num, column=6, value=alum.get("mobile_no", ""))
+            ws.cell(row=row_num, column=7, value=alum.get("secondary_phone", ""))
+            ws.cell(row=row_num, column=8, value=alum.get("enrollment_number", ""))
+            ws.cell(row=row_num, column=9, value=alum.get("degree", ""))
+            ws.cell(row=row_num, column=10, value=alum.get("department", ""))
+            ws.cell(row=row_num, column=11, value=alum.get("sub_institute", ""))
+            ws.cell(row=row_num, column=12, value=alum.get("year_of_joining", ""))
+            ws.cell(row=row_num, column=13, value=alum.get("year_of_passing", ""))
+            ws.cell(row=row_num, column=14, value=alum.get("company", ""))
+            ws.cell(row=row_num, column=15, value=alum.get("designation", ""))
+            ws.cell(row=row_num, column=16, value=alum.get("linkedin_profile", ""))
+            ws.cell(row=row_num, column=17, value=alum.get("address", ""))
+            ws.cell(row=row_num, column=18, value=alum.get("whom_to_meet", ""))
+            ws.cell(row=row_num, column=19, value=alum.get("selected_person_name", ""))
+            ws.cell(row=row_num, column=20, value=alum.get("selected_person_mobile", ""))
+            ws.cell(row=row_num, column=21, value=alum.get("valid_till", ""))
+            ws.cell(row=row_num, column=22, value=alum.get("token", ""))
+        
+        # Save to bytes
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        
+        return StreamingResponse(
+            iter([buffer.getvalue()]),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename=alumni_{date_range}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"}
+        )
+    except Exception as e:
+        logger.error(f"Error exporting alumni data: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error exporting alumni data: {str(e)}")
 
 @api_router.get("/dashboard/stats")
 async def get_dashboard_stats():
@@ -647,6 +1208,7 @@ async def get_dashboard_stats():
     total_visitors = await db.visitors.count_documents({})
     total_alumni = await db.alumni.count_documents({})
     total_events = await db.events.count_documents({})
+    total_registered_visitors = await db.faculty_registered_visitors.count_documents({})
     
     return {
         "visitors_today": visitors_today,
@@ -654,8 +1216,11 @@ async def get_dashboard_stats():
         "total_faculty": total_faculty,
         "total_visitors": total_visitors,
         "total_alumni": total_alumni,
-        "total_events": total_events
+        "total_events": total_events,
+        "total_registered_visitors": total_registered_visitors
     }
+
+
 
 # Include router
 app.include_router(api_router)

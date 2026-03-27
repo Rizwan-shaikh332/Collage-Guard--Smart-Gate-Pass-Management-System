@@ -1,0 +1,2928 @@
+===============================================================================
+           PICT GUARD - SMART GATE PASS MANAGEMENT SYSTEM
+                    COMPLETE PROJECT DOCUMENTATION
+===============================================================================
+
+Project Name: PICT Guard - Smart Gate Pass Management System
+Version: 1.0
+Created: 2026-03-15
+Last Updated: 2026-03-15
+
+===============================================================================
+TABLE OF CONTENTS
+===============================================================================
+
+1. PROJECT OVERVIEW
+2. SYSTEM ARCHITECTURE
+3. TECHNOLOGY STACK
+4. PORTS AND NETWORK CONFIGURATION
+5. DATABASE - MONGODB CONNECTIONS & FEATURES
+6. USER TYPES AND FUNCTIONALITIES
+   6.1 STUDENT FUNCTIONALITY
+   6.2 FACULTY FUNCTIONALITY
+   6.3 VISITOR FUNCTIONALITY
+   6.4 ALUMNI FUNCTIONALITY
+   6.5 ADMIN FUNCTIONALITY
+   6.6 GUARD FUNCTIONALITY
+7. API ENDPOINTS
+8. ENVIRONMENT VARIABLES & API KEYS
+9. AUTHENTICATION & SECURITY
+10. EMAIL CONFIGURATION
+11. QR CODE SYSTEM
+12. FRONTEND PAGES & COMPONENTS
+13. DATA FLOW & WORKFLOWS
+
+===============================================================================
+1. PROJECT OVERVIEW
+===============================================================================
+
+PICT Guard is a comprehensive gate pass management system designed for college
+campus entry and exit management. It provides:
+
+- Secure QR code-based authentication for student, faculty, visitor, and alumni
+  entry into the campus
+- Real-time validation at gates by guards
+- Automated email delivery of QR codes
+- Bulk management of students and faculty
+- Event-based access management
+- Professional digital ID cards
+- Photo capture system for visitors and alumni
+- Web and mobile application support (React Native ready)
+
+Key Features:
+- 24-hour validity for visitor and alumni passes
+- Year-based automatic validity calculation for students
+- Search and filtering capabilities for visitors and alumni
+- Resendable email functionality for QR codes
+- Multi-user role support (Admin, Guard, Student, Faculty, Visitor, Alumni)
+- Dashboard statistics and reporting
+- Excel export functionality for alumni and visitor data
+
+===============================================================================
+2. SYSTEM ARCHITECTURE
+===============================================================================
+
+The system is built with a three-tier architecture:
+
+Frontend Layer:
+  - React 19 (web application)
+  - React Native (mobile application framework)
+  - Tailwind CSS for styling
+  - Shadcn/UI component library
+
+Backend Layer:
+  - FastAPI (Python web framework)
+  - Uvicorn (ASGI server)
+  - Motor (Async MongoDB driver)
+  - Async Python programming model
+
+Database Layer:
+  - MongoDB (NoSQL database)
+  - Collections for each user type
+  - Indexed queries for performance
+
+Communication:
+  - REST API endpoints
+  - Axios for HTTP requests
+  - JSON request/response format
+  - CORS enabled for cross-origin requests
+
+===============================================================================
+3. TECHNOLOGY STACK
+===============================================================================
+
+BACKEND TECHNOLOGIES:
+- Python 3.11+
+- FastAPI 0.110.1
+- Uvicorn (ASGI server)
+- Motor (Async MongoDB driver)
+- Pydantic (Data validation)
+- Passlib + Bcrypt (Password hashing)
+- QRCode library (QR generation)
+- OpenPyXL (Excel file processing)
+- Resend API (Email service - optional)
+- Email-validator (Email validation)
+- SMTPLib (Gmail SMTP for email delivery)
+
+FRONTEND TECHNOLOGIES:
+- React 19
+- Tailwind CSS
+- Shadcn/UI component library
+- React Router DOM (Routing)
+- Axios (HTTP client)
+- QRCode.react (QR display)
+- React Webcam (Camera integration)
+- Sonner (Toast notifications)
+- Lucide Icons (Icon library)
+
+MOBILE TECHNOLOGIES:
+- React Native
+- React Navigation
+- Redux/Context API (State management)
+- AsyncStorage (Local data persistence)
+- Expo Camera (QR scanning)
+
+DATABASE:
+- MongoDB 5.0+
+- Collections: students, faculty, visitors, alumni, events, event_students,
+  faculty_registered_visitors
+- Indexes on frequently queried fields
+
+===============================================================================
+4. PORTS AND NETWORK CONFIGURATION
+===============================================================================
+
+Development Environment:
+
+Backend API Server:
+  Port: 8001
+  Host: 0.0.0.0
+  Protocol: HTTP
+  URL: http://localhost:8001
+  ASGI Server: Uvicorn with reload enabled
+  Command: uvicorn server:app --host 0.0.0.0 --port 8001 --reload
+
+Frontend Web Server:
+  Port: 3000
+  Host: localhost
+  Protocol: HTTP
+  URL: http://localhost:3000
+  Framework: React development server (npm/yarn)
+  Command: yarn start or npm start
+
+MongoDB Server:
+  Port: 27017
+  Host: localhost
+  Protocol: MongoDB custom protocol
+  URL: mongodb://localhost:27017
+  Default: Local MongoDB instance or MongoDB Atlas cloud
+
+Production Configuration:
+  Backend API: Can be deployed on any cloud platform (AWS, Azure, GCP, etc.)
+  Frontend: Static hosting with appropriate CORS configuration
+  Database: MongoDB Atlas or managed MongoDB service
+  Port forwarding: Standard HTTP/HTTPS (80/443)
+
+API Configuration:
+  Base URL (Backend): http://localhost:8001/api
+  CORS Allowed Origins: * (configurable via CORS_ORIGINS env variable)
+  Request Format: JSON
+  Response Format: JSON
+
+===============================================================================
+5. DATABASE - MONGODB CONNECTIONS & FEATURES
+===============================================================================
+
+DATABASE NAME: pict_guard_db
+
+CONNECTION STRING:
+  Local: mongodb://localhost:27017
+  Atlas: mongodb+srv://username:password@cluster.mongodb.net/pict_guard_db
+
+MONGODB DRIVER:
+  Library: Motor (Async MongoDB driver)
+  Connection Pool: AsyncIOMotorClient
+  Async Operations: All database operations are asynchronous
+
+COLLECTIONS AND SCHEMA:
+
+5.1 STUDENTS COLLECTION
+Collection Name: students
+Purpose: Store student registration and access information
+Features:
+  - Automatic semester-based validity calculation
+  - QR code token generation
+  - Email validation
+  - Mobile number verification
+
+Fields in Document:
+{
+  "reg_no": "unique_registration_number",        // Primary identifier
+  "name": "Student Name",
+  "email": "student@email.com",                  // Email validation required
+  "mobile_no": "1234567890",                     // Must be 10 digits
+  "dob": "2000-01-01",                           // Date of birth
+  "current_year": 2,                             // 1-4 (Academic year)
+  "token": "unique_uuid_v4",                     // QR code token
+  "valid_till": "2027-12-31T00:00:00Z",         // ISO format datetime
+  "created_at": "2026-02-10T00:00:00Z"          // ISO format datetime
+}
+
+Indexes:
+  - reg_no (unique)
+  - email (unique)
+  - mobile_no (unique)
+  - token (unique)
+
+Validity Calculation:
+  - Year 1: Valid for 3 years from creation date
+  - Year 2: Valid for 2 years from creation date
+  - Year 3: Valid for 1 year from creation date
+  - Year 4: Valid for 1 year from creation date
+
+Query Examples:
+  Find by reg_no: db.students.find_one({"reg_no": "S001"})
+  Find by email: db.students.find_one({"email": "student@email.com"})
+  Find by token: db.students.find_one({"token": "token_value"})
+  Check validity: Filter by "valid_till" > current_datetime
+
+
+5.2 FACULTY COLLECTION
+Collection Name: faculty
+Purpose: Store faculty member information and access credentials
+Features:
+  - Auto-generated faculty IDs (fact_0001, fact_0002, etc.)
+  - Department and profession tracking
+  - Can register visitors
+  - Email-based authentication
+
+Fields in Document:
+{
+  "faculty_id": "fact_0001",                     // Auto-generated, unique
+  "name": "Faculty Name",
+  "email": "faculty@email.com",                  // Unique, email validated
+  "mobile_no": "1234567890",
+  "department": "Computer Science",              // Department name
+  "profession": "Professor",                     // Job title
+  "token": "unique_uuid_v4",                     // QR code token
+  "valid_till": "2027-12-31T00:00:00Z",         // ISO format datetime
+  "created_at": "2026-02-10T00:00:00Z"          // ISO format datetime
+}
+
+Indexes:
+  - faculty_id (unique, auto-increment pattern)
+  - email (unique)
+  - mobile_no (unique)
+  - token (unique)
+
+Faculty ID Generation:
+  - Format: "fact_" followed by 4-digit number
+  - Examples: fact_0001, fact_0002, fact_0003, fact_1000
+  - Sequence: Increments automatically based on last record
+  - Query: Finds highest existing faculty_id and increments the number
+
+Query Examples:
+  Find by faculty_id: db.faculty.find_one({"faculty_id": "fact_0001"})
+  Find by email: db.faculty.find_one({"email": "faculty@email.com"})
+  Find highest ID: db.faculty.find_one({}, sort=[("faculty_id", -1)])
+
+
+5.3 VISITORS COLLECTION
+Collection Name: visitors
+Purpose: Store public visitor registration and access information
+Features:
+  - Self-registration without login
+  - Photo capture for identification
+  - ID proof attachment
+  - Person-to-visit tracking
+  - 24-hour validity
+  - Support for multiple visitor types
+
+Fields in Document:
+{
+  "full_name": "Visitor Name",
+  "phone_number": "1234567890",
+  "email": "visitor@email.com",                  // Email validated, unique
+  "gender": "Male|Female|Other",
+  "date_of_birth": "1990-01-01",
+  "id_type": "Aadhar Card|Passport|Driving License|Other",
+  "id_number": "unique_id_value",
+  "id_proof_base64": "base64_encoded_image",     // Optional: ID document photo
+  "visitor_type": "student|faculty|visitor|worker",  // Type of visitor
+  "person_to_visit_id": "fac_001|reg_no",       // Reference to student/faculty
+  "person_to_visit_name": "Faculty Name",        // Name of person to visit
+  "person_to_visit_mobile": "1234567890",        // Contact of person to visit
+  "purpose": "Meeting|Campus Tour|etc",          // Purpose of visit
+  "photo_base64": "base64_encoded_image",        // Visitor's selfie
+  "token": "unique_uuid_v4",                     // QR code token
+  "valid_till": "2026-02-11T00:00:00Z",         // 24 hours from creation
+  "created_at": "2026-02-10T00:00:00Z"          // ISO format datetime
+}
+
+Indexes:
+  - email (unique)
+  - token (unique)
+  - person_to_visit_id (for finding all visitors for a person)
+
+Validity:
+  - Set to current time + 24 hours
+  - Automatically calculated on registration
+  - Cannot be extended; new registration required
+
+Query Examples:
+  Find by token: db.visitors.find_one({"token": "token_value"})
+  Find visitors for a person: db.visitors.find({"person_to_visit_id": "fac_001"})
+  Find today's visitors: db.visitors.find({"created_at": {"$gte": "2026-02-10T00:00:00Z"}})
+
+
+5.4 ALUMNI COLLECTION
+Collection Name: alumni
+Purpose: Store alumni registration and reunion information
+Features:
+  - Comprehensive alumni profile
+  - Work information tracking
+  - Professional networking
+  - 24-hour campus access
+  - Photo and profile validation
+
+Fields in Document:
+{
+  "first_name": "Alumni First Name",
+  "middle_name": "Middle Name",                  // Optional
+  "last_name": "Alumni Last Name",
+  "email": "alumni@email.com",                   // Unique, email validated
+  "secondary_email": "alternate@email.com",      // Optional
+  "mobile_no": "1234567890",
+  "secondary_phone": "9876543210",               // Optional
+  "enrollment_number": "unique_enrollment",      // Unique, from college records
+  "degree": "B.E|B.Tech|M.Tech|etc",
+  "department": "Computer Engineering",
+  "address": "Current address",
+  "designation": "Software Engineer",            // Current job title
+  "company": "Tech Corporation",                 // Current employer
+  "year_of_passing": "2020",
+  "year_of_joining": "2016",
+  "sub_institute": "College name",
+  "linkedin_profile": "LinkedIn URL",            // Optional: Professional profile
+  "whom_to_meet": "faculty|student|visitor",   // Type of person to meet
+  "selected_person_id": "fac_001|reg_no",       // Reference to student/faculty
+  "selected_person_name": "Faculty Name",        // Name of person to meet
+  "selected_person_mobile": "1234567890",        // Contact of person to meet
+  "photo_base64": "base64_encoded_image",        // Alumni's selfie
+  "token": "unique_uuid_v4",                     // QR code token
+  "valid_till": "2026-02-11T00:00:00Z",         // 24 hours from creation
+  "created_at": "2026-02-10T00:00:00Z"          // ISO format datetime
+}
+
+Indexes:
+  - email (unique)
+  - enrollment_number (unique)
+  - token (unique)
+  - selected_person_id (for finding all alumni visitors for a person)
+
+Export Features:
+  - Export to Excel with date filtering
+  - Filters: last_month, last_3_months, last_6_months, last_year, last_2_years
+  - All records (no date filter)
+
+Query Examples:
+  Find by email: db.alumni.find_one({"email": "alumni@email.com"})
+  Find alumni for person: db.alumni.find({"selected_person_id": "fac_001"})
+  Export by date: Filter by "created_at" >= start_date
+
+
+5.5 EVENTS COLLECTION
+Collection Name: events
+Purpose: Store event information for time-bound campus access
+Features:
+  - Multi-day event support
+  - Student assignment to events
+  - Automatic QR code generation
+  - Bulk email functionality
+
+Fields in Document:
+{
+  "event_id": "unique_uuid_v4",                  // Primary identifier
+  "event_name": "Tech Fest 2026",
+  "event_type": "Festival|Workshop|Seminar|Conference|etc",
+  "date_from": "2026-03-01",                     // Start date (YYYY-MM-DD)
+  "date_to": "2026-03-03",                       // End date (YYYY-MM-DD)
+  "description": "Annual technology festival",
+  "created_at": "2026-02-10T00:00:00Z"          // ISO format datetime
+}
+
+Indexes:
+  - event_id (unique)
+  - date_from, date_to (for filtering by date range)
+
+Query Examples:
+  Find event by ID: db.events.find_one({"event_id": "event_uuid"})
+  Find all events: db.events.find({})
+  Find events by date: db.events.find({"date_from": {"$lte": "2026-03-01"}})
+
+
+5.6 EVENT_STUDENTS COLLECTION
+Collection Name: event_students
+Purpose: Store students assigned to events with time-bound access
+Features:
+  - Event-specific validity dates
+  - Bulk assignment from Excel
+  - Automatic QR code generation
+  - Email notification to students
+  - Duplicate prevention
+
+Fields in Document:
+{
+  "event_id": "unique_uuid_v4",                  // Reference to events collection
+  "reg_no": "student_reg_no",                    // Reference to students collection
+  "name": "Student Name",
+  "email": "student@email.com",
+  "mobile_no": "1234567890",
+  "token": "unique_uuid_v4",                     // Event-specific QR token
+  "valid_from": "2026-03-01",                    // Event start date
+  "valid_to": "2026-03-03",                      // Event end date
+  "created_at": "2026-02-10T00:00:00Z"          // ISO format datetime
+}
+
+Indexes:
+  - token (unique)
+  - event_id (for finding all students in an event)
+  - email, event_id (composite unique constraint)
+
+Bulk Assignment:
+  - Excel file import support
+  - Duplicate detection (email, event combination)
+  - Error logging for each row
+  - Automatic email send on assignment
+
+Query Examples:
+  Find event students: db.event_students.find({"event_id": "event_uuid"})
+  Find by token: db.event_students.find_one({"token": "token_value"})
+  Check duplicate: db.event_students.find_one({"event_id": "id", "email": "email"})
+
+
+5.7 FACULTY_REGISTERED_VISITORS COLLECTION
+Collection Name: faculty_registered_visitors
+Purpose: Store visitors registered by faculty members for campus access
+Features:
+  - Faculty-controlled visitor management
+  - Date-range based access
+  - Multiple visitor types
+  - Email notification system
+  - Resend email functionality
+
+Fields in Document:
+{
+  "visitor_id": "unique_uuid_v4",                // Primary identifier
+  "faculty_id": "fact_0001",                     // Reference to faculty collection
+  "visitor_type": "HR|Relative|Other Faculty|Student|Other",
+  "name": "Visitor Name",
+  "email": "visitor@email.com",                  // Unique per faculty
+  "mobile_no": "1234567890",
+  "date_from": "2026-03-01",                     // Access start date
+  "date_to": "2026-03-05",                       // Access end date
+  "valid_till": "2026-03-05T23:59:59Z",         // QR code validity datetime
+  "token": "unique_uuid_v4",                     // QR code token
+  "created_at": "2026-02-10T00:00:00Z"          // ISO format datetime
+}
+
+Indexes:
+  - visitor_id (unique)
+  - token (unique)
+  - faculty_id (for finding all visitors registered by a faculty)
+  - email, faculty_id (composite unique constraint per faculty)
+
+Duplicate Prevention:
+  - Email unique per faculty member
+  - Mobile unique per faculty member
+  - Cannot register same email/mobile twice for same faculty
+
+Query Examples:
+  Find faculty visitors: db.faculty_registered_visitors.find({"faculty_id": "fact_0001"})
+  Find by token: db.faculty_registered_visitors.find_one({"token": "token_value"})
+  Resend email: Find visitor by "visitor_id" and resend QR
+
+
+MONGODB CONNECTION PARAMETERS:
+
+Connection Initialization:
+  from motor.motor_asyncio import AsyncIOMotorClient
+  
+  mongo_url = os.environ['MONGO_URL']
+  client = AsyncIOMotorClient(mongo_url)
+  db = client[os.environ['DB_NAME']]
+
+Environment Variables Required:
+  MONGO_URL: Connection string (e.g., "mongodb://localhost:27017")
+  DB_NAME: Database name (e.g., "pict_guard_db")
+
+Async Operations:
+  All database operations are asynchronous using Motor
+  Syntax: await db.collection_name.find_one({})
+  Syntax: await db.collection_name.insert_one(document)
+  Syntax: await db.collection_name.find(filter).to_list(limit)
+
+Indexing:
+  Automatically handled by MongoDB
+  Indexes on: _id, unique fields (email, mobile_no, token, etc.)
+  Text searches on: name, mobile_no, reg_no (with regex filters)
+
+Transactions:
+  Single document operations (most of the app)
+  No multi-document transactions currently implemented
+
+Data Validation:
+  Pydantic models for schema definition
+  Email validation via email-validator
+  Phone number format validation (string, 10 digits expected)
+
+===============================================================================
+6. USER TYPES AND FUNCTIONALITIES
+===============================================================================
+
+The system supports six main user types, each with distinct features:
+
+6.1 STUDENT FUNCTIONALITY
+================
+
+Login Method: Email + Mobile Number
+- Route: /user/login
+- Credentials: Email (from database) + Mobile Number (from database)
+- Uses: POST request to /api/auth/user/login
+
+Features:
+1. Digital ID Card Display
+   - Shows student profile with photo placeholder
+   - Displays QR code with unique token
+   - Shows validity date
+   - Professional card design
+
+2. Validity Management
+   - Automatic calculation based on current academic year
+   - Year 1: Valid for 3 years
+   - Year 2: Valid for 2 years
+   - Year 3: Valid for 1 year
+   - Year 4: Valid for 1 year
+   - Cannot modify validity manually
+
+3. Event Participation
+   - Can be added to events by admin
+   - Receives event-specific QR code
+   - Access valid only during event dates
+   - Automatic email notification with QR code
+
+4. Visitor/Alumni Tracking
+   - Can see incoming visitors/alumni coming to meet them
+   - View visitor details (name, email, contact, purpose)
+   - View time-bound access for event participants
+   - Mobile number masked for security
+
+5. Faculty Registration Option
+   - If user is faculty, can register visitors
+   - See registered visitor list
+   - Resend QR codes to visitors
+
+Front-end Routes:
+  /user/login - Login page
+  /user/portal - User dashboard
+
+Database Interaction:
+  Collection: students
+  Primary Fields: reg_no, email, mobile_no, token, valid_till
+  Update: Only by admin (bulk upload or manual entry)
+
+Workflow:
+  1. Student provides email and mobile number
+  2. System validates in students collection
+  3. If match found, returns student data and role
+  4. Student redirected to portal
+  5. Portal displays QR code and profile
+  6. Student can view incoming visitors
+
+
+6.2 FACULTY FUNCTIONALITY
+================
+
+Login Method: Email + Mobile Number
+- Route: /user/login
+- Credentials: Email (from database) + Mobile Number (from database)
+- Uses: Same endpoint as students (/api/auth/user/login)
+
+Features:
+1. Digital ID Card Display
+   - Shows faculty profile with auto-generated ID (fact_XXXX)
+   - Displays QR code with unique token
+   - Shows department and profession
+   - Shows validity date
+   - Professional card design
+
+2. Access Management
+   - Set validity date at creation
+   - Does not auto-expire like students
+   - Can be renewed by admin
+
+3. Visitor Registration Dashboard
+   - Button to "Register Visitor"
+   - Opens visitor registration dialog
+   - Form fields:
+     * Visitor Type: HR, Relative, Other Faculty, Student, Other
+     * Name: Full name of visitor
+     * Email: Visitor's email (unique per faculty)
+     * Mobile: Visitor's phone number (unique per faculty)
+     * Date From: When visitor access starts
+     * Date To: When visitor access ends
+     * Valid Till: QR code validity datetime
+
+4. Registered Visitors List
+   - Displays all visitors registered by this faculty
+   - Shows: Name, Type, Email, Mobile, Valid Dates
+   - "Resend Email" button for each visitor
+   - Scrollable list with "No visitors yet" message
+
+5. Visitor Meeting Tracking
+   - Can see which visitors are coming to meet them
+   - View visitor details
+   - View visitor photos (base64 encoded)
+   - Check visitor validity period
+
+6. Email Management
+   - QR codes automatically sent to visitor emails
+   - Can resend QR code email if needed
+   - Professional HTML email with embedded QR code
+
+Front-end Routes:
+  /user/login - Login page
+  /user/portal - Faculty dashboard with visitor management
+
+Database Interaction:
+  Collection: faculty (for login)
+  Collection: faculty_registered_visitors (for registered visitors)
+  Primary Fields: faculty_id, name, email, mobile_no, token
+  Visitor Fields: visitor_id, faculty_id, visitor_type, email, mobile_no, date_from, date_to
+
+API Endpoints:
+  POST /api/faculty/register-visitor - Register new visitor
+  GET /api/faculty/{faculty_id}/registered-visitors - List registered visitors
+  POST /api/faculty/visitor/resend-email - Resend QR code email
+  GET /api/visitors/meeting/{faculty_id} - See visitors coming to meet
+
+Workflow:
+  1. Faculty logs in with email and mobile
+  2. Dashboard shows their QR code and profile
+  3. Faculty clicks "Register Visitor" button
+  4. Fills visitor registration form
+  5. System generates QR code and sends email
+  6. Visitor list updates in real-time
+  7. Option to resend email for each visitor
+
+
+6.3 VISITOR FUNCTIONALITY
+================
+
+Login Method: Public Registration (No Login Required)
+- Route: /visitor/register
+- Features: Self-registration with camera capture
+
+Registration Form Fields:
+  - Full Name (required, text)
+  - Phone Number (required, 10 digits)
+  - Email (required, email format)
+  - Gender (required, dropdown: Male, Female, Other)
+  - Date of Birth (required, date picker)
+  - ID Type (required, dropdown: Aadhar, Passport, Driving License, Other)
+  - ID Number (required, text)
+  - Visitor Type (required, dropdown: student, faculty, visitor, worker)
+  - Person to Visit (search dropdown)
+    * Can search by name or mobile number
+    * Filters based on selected visitor type
+  - Purpose (required, text)
+
+Camera Features:
+  - Built-in webcam capture
+  - 3-second countdown before capture
+  - Photo displayed after capture
+  - Can recapture if needed
+
+ID Proof Upload:
+  - Optional ID document photo
+  - Base64 encoded and stored in database
+  - Used for security verification
+
+Access Generation:
+  - Valid for exactly 24 hours from creation time
+  - Non-extendable (must register again for extended access)
+  - QR code generated automatically
+  - Email sent to provided email address
+
+Success Screen:
+  - Displays QR code
+  - Shows validity period
+  - Displays registration details
+  - Email confirmation message
+  - Option to download or share QR code
+
+Database Storage:
+  Collection: visitors
+  All visitor details stored with photo (base64 encoded)
+  Token generated for QR code validation
+
+Front-end Routes:
+  /visitor/register - Public registration page
+
+Workflow:
+  1. Visitor navigates to /visitor/register (no login required)
+  2. Fills registration form
+  3. Searches and selects person to visit (if applicable)
+  4. Captures selfie using camera
+  5. Uploads ID proof (optional)
+  6. Submits form
+  7. System generates QR code
+  8. Email sent with QR code
+  9. Success page displays QR code
+  10. Valid for 24 hours only
+
+
+6.4 ALUMNI FUNCTIONALITY
+================
+
+Login Method: Public Registration (No Login Required)
+- Route: /alumni/register
+- Features: Alumni-specific registration form
+
+Registration Form Fields:
+  - First Name (required, text)
+  - Middle Name (optional, text)
+  - Last Name (required, text)
+  - Email (required, email format)
+  - Secondary Email (optional, email format)
+  - Mobile Number (required, 10 digits)
+  - Secondary Phone (optional, 10 digits)
+  - Enrollment Number (required, unique text)
+  - Degree (required, dropdown: B.E, B.Tech, M.Tech, etc.)
+  - Department (required, text/dropdown)
+  - Address (required, text)
+  - Designation (required, current job title)
+  - Company (required, current employer)
+  - Year of Joining (required, year format)
+  - Year of Passing (required, year format)
+  - Sub Institute (required, college name)
+  - LinkedIn Profile (optional, URL)
+  - Whom to Meet (required, dropdown: faculty, student, visitor)
+  - Selected Person (search dropdown)
+    * Can search by name or mobile number
+    * Dynamic filtering based on selection
+
+Camera Features:
+  - Built-in webcam capture (same as visitor)
+  - 3-second countdown before capture
+  - Photo stored as base64
+  - Recapture available if needed
+
+Access Features:
+  - Valid for exactly 24 hours from creation time
+  - QR code generated automatically
+  - Email delivery to primary email
+  - Professional HTML email template
+
+Professional Tracking:
+  - Current company and designation stored
+  - Monthly CTC information available (optional)
+  - Specialization/skill tags
+  - LinkedIn profile links supported
+
+Export Features:
+  - Admin can export alumni data to Excel
+  - Date-range filtering available:
+    * Last month
+    * Last 3 months
+    * Last 6 months
+    * Last year
+    * Last 2 years
+    * All records (no filter)
+  - Includes all alumni information in Excel format
+
+Database Storage:
+  Collection: alumni
+  Comprehensive alumni profile stored
+  Photo base64 encoded and stored
+  Token generated for QR code validation
+  Enrollment number enforced as unique
+
+Front-end Routes:
+  /alumni/register - Public alumni registration page
+
+API Endpoints:
+  POST /api/alumni - Register new alumni
+  GET /api/alumni - Fetch all alumni records
+  GET /api/alumni/meeting/{person_id} - See alumni visiting person
+  GET /api/alumni/export - Export alumni data to Excel
+
+Workflow:
+  1. Alumni navigates to /alumni/register (no login required)
+  2. Fills comprehensive alumni form
+  3. Searches and selects person to meet
+  4. Captures selfie using camera
+  5. Submits form
+  6. System generates QR code and sends email
+  7. Success page displays QR code
+  8. Valid for 24 hours only
+  9. Admin can track and export alumni data
+
+
+6.5 ADMIN FUNCTIONALITY
+================
+
+Login Method: Username + Password
+- Route: /admin/login
+- Credentials: 
+  * Username: "admin"
+  * Password: "admin123"
+- Uses: POST request to /api/auth/admin/login
+
+Dashboard Overview:
+  - Real-time statistics
+  - Visitors registered today (count)
+  - Total students
+  - Total faculty members
+  - Total visitors (all-time)
+  - Total alumni (all-time)
+  - Total events
+  - Total faculty-registered visitors
+
+Tab-Based Interface:
+
+Tab 1: Dashboard
+  - Statistics cards showing key metrics
+  - Real-time data updates
+  - Visual representation of campus activity
+
+Tab 2: Students Management
+  - List of all students with details:
+    * Registration Number
+    * Name
+    * Email
+    * Mobile Number
+    * DOB
+    * Current Year
+    * Validity Date
+    
+  - Add Single Student
+    * Form dialog
+    * Fields: Reg No, Name, Email, Mobile, DOB, Year
+    * Auto-calculate validity based on year
+    * Validation for duplicate reg_no, email, mobile
+    
+  - Bulk Upload Students
+    * Excel file import (.xlsx, .xls)
+    * Required columns: RegNo, Name, Email, Mobile, DOB, Year
+    * Batch processing
+    * Error reporting for each row
+    * Duplicate detection
+    * Progress feedback
+    * Can handle 1000+ records
+
+  - Download Excel Template
+  - Export current student list
+
+Tab 3: Faculty Management
+  - List of all faculty with details:
+    * Faculty ID (auto-generated: fact_0001, fact_0002, etc.)
+    * Name
+    * Email
+    * Mobile Number
+    * Department
+    * Profession
+    * Validity Date
+    
+  - Add Single Faculty
+    * Form dialog
+    * Fields: Name, Email, Mobile, Department, Profession, Valid Till
+    * Auto-generates next faculty ID
+    * Validation for duplicates
+    
+  - Bulk Upload Faculty
+    * Excel file import (.xlsx, .xls)
+    * Required columns: Name, Email, Mobile, Department, Profession, ValidTill
+    * Auto-generates sequential faculty IDs
+    * Error reporting per row
+    * Duplicate prevention
+    * Batch validation
+
+  - Download Excel Template
+  - Export current faculty list
+
+Tab 4: Events Management
+  - List of all events with details:
+    * Event Name
+    * Event Type
+    * Start Date
+    * End Date
+    * Description
+    * Student Count
+    
+  - Create New Event
+    * Form dialog
+    * Fields: Event Name, Event Type, Date From, Date To, Description
+    * Sets access validity for event period
+    
+  - Add Students to Event
+    * Bulk import from Excel
+    * Manual entry option
+    * Validates student exists if using reg_no
+    * Auto-fetches student details for email sending
+    * Prevents duplicate additions
+    * Sends QR code emails automatically
+    * Shows progress and error details
+
+  - View Event Details
+  - List students in event
+  - Re-send QR codes to event students
+
+Tab 5: Registered Visitors (Faculty-Registered)
+  - List of all faculty-registered visitors
+  - Shows faculty name (joined from faculty collection)
+  - Visitor details: name, type, email, mobile
+  - Access dates and QR validity
+  - Resend email functionality
+  - Filter by faculty member
+  - Export visitor list
+
+Login/Logout:
+  - Prominent logout button in header
+  - Clears admin token from localStorage
+  - Redirects to login page
+  - Session management
+
+Database Access:
+  Collections accessed:
+    - students (create, read, bulk insert)
+    - faculty (create, read, bulk insert)
+    - events (create, read)
+    - event_students (create, read)
+    - faculty_registered_visitors (read)
+
+Front-end Routes:
+  /admin/login - Admin login page
+  /admin/dashboard - Main admin dashboard
+
+API Endpoints Used:
+  POST /api/auth/admin/login - Login
+  GET /api/dashboard/stats - Dashboard statistics
+  GET /api/students - List all students
+  POST /api/students - Create single student
+  POST /api/students/bulk - Bulk upload students
+  GET /api/faculty - List all faculty
+  POST /api/faculty - Create single faculty
+  POST /api/faculty/bulk - Bulk upload faculty
+  GET /api/events - List all events
+  POST /api/events - Create event
+  POST /api/events/{event_id}/students - Add students to event
+  GET /api/events/{event_id}/students - Get event students
+  GET /api/registered-visitors - List faculty-registered visitors
+
+Workflow:
+  1. Admin logs in with "admin" / "admin123"
+  2. Redirected to dashboard
+  3. Can view real-time statistics
+  4. Manage students (add single, bulk upload, view list)
+  5. Manage faculty (add single, bulk upload, view list)
+  6. Create events and assign students
+  7. Monitor faculty-registered visitors
+  8. Export data as needed
+  9. Manage system-wide access
+
+
+6.6 GUARD FUNCTIONALITY
+================
+
+Login Method: Username + Password
+- Route: /guard/login
+- Credentials:
+  * Username: "guard" + number (guard1, guard2, guard3, etc.)
+  * Password: "guard123" (same for all guards)
+- Uses: POST request to /api/auth/guard/login
+
+Simple Scanner Interface:
+  - Minimal, distraction-free design
+  - Large QR code input field
+  - Focus on ease of use
+
+QR Code Validation Method: Two Options
+  1. Scan QR code directly (with barcode/QR scanner device)
+  2. Manual token entry (paste token directly)
+
+Validation Process:
+  - Guard scans or enters QR token
+  - System validates token across all collections:
+    * students
+    * faculty
+    * visitors
+    * alumni
+    * event_students
+    * faculty_registered_visitors
+  - Checks validity date/time
+
+Validation Results:
+
+If Valid (Green Screen):
+  - Full-screen green background
+  - Large checkmark icon
+  - User details displayed:
+    * Name
+    * Email
+    * User type (Student/Faculty/Visitor/Alumni/Event Student/Registered Visitor)
+    * Validity information
+    * Additional details from database
+  - Access granted message
+  - Auto-clear after 5 seconds
+
+If Invalid - Expired:
+  - Full-screen red background
+  - Large X icon
+  - Message: "QR code expired"
+  - User type shown
+  - Name and email if found
+  - Expiration datetime displayed
+  - Instructions to re-register
+  - Auto-clear after 5 seconds
+
+If Invalid - Not Found:
+  - Full-screen red background
+  - Large X icon
+  - Message: "QR code not found"
+  - Access denied
+  - No user details shown (security)
+  - Auto-clear after 5 seconds
+
+Auto-Clear Feature:
+  - After 5 seconds, screen clears
+  - Field empties
+  - Focuses on input for next scan
+  - Seamless multi-user scanning
+
+Manual Refresh:
+  - Button to manually clear result and reset
+  - Useful if need to scan before auto-clear
+  - Maintains focus on input field
+
+Multiple Guard Terminals:
+  - Each guard has unique username (guard1, guard2, etc.)
+  - Same password for all ("guard123")
+  - Independent sessions
+  - Works on multiple devices simultaneously
+
+Debug Information:
+  - Endpoint: /api/debug/token/{token}
+  - Shows which collection contains token
+  - Shows validity status
+  - Used for troubleshooting
+
+Logout:
+  - Clears guard session data
+  - Returns to login page
+  - Can be used by different guard immediately
+
+Front-end Routes:
+  /guard/login - Guard login page
+  /guard/scanner - Guard scanning interface
+
+API Endpoints:
+  POST /api/auth/guard/login - Guard login
+  POST /api/validate-qr - QR code validation
+  GET /api/debug/token/{token} - Debug endpoint (optional)
+
+Database Interaction:
+  Read-only operations
+  Queries multiple collections
+  Each validation is a read-only check
+  No data modification
+
+Workflow:
+  1. Guard logs in with guard1 (or guard2, etc.) / guard123
+  2. Redirected to scanner page
+  3. Campus entrance entry shows QR scanner interface
+  4. Guard scans QR code (or pastes token)
+  5. System validates token
+  6. Green screen: Access granted - show user details
+  7. Red screen: Access denied - show expiration status
+  8. Auto-clears after 5 seconds
+  9. Ready for next scan
+  10. Repeats throughout day/shift
+
+
+===============================================================================
+7. API ENDPOINTS
+===============================================================================
+
+BASE URL: http://localhost:8001/api
+
+Authentication Endpoints:
+  
+  POST /auth/admin/login
+    Request: {"username": "admin", "password": "admin123"}
+    Response: {"success": true, "role": "admin", "token": "uuid"}
+    Status: 401 if invalid credentials
+  
+  POST /auth/user/login
+    Request: {"email": "user@email.com", "mobile_no": "1234567890"}
+    Response: {"success": true, "role": "student|faculty", "data": {...}}
+    Status: 401 if not found
+  
+  POST /auth/guard/login
+    Request: {"username": "guard1", "password": "guard123"}
+    Response: {"success": true, "role": "guard", "guard_id": "guard1"}
+    Status: 401 if invalid credentials
+
+Student Endpoints:
+
+  POST /students
+    Request: {"reg_no": "S001", "name": "John", "email": "john@email.com",
+              "mobile_no": "9876543210", "dob": "2000-01-01", "current_year": 2}
+    Response: Student object with generated token
+    Status: 400 if student exists
+  
+  GET /students
+    Response: List of all students [...]
+    Status: 200
+  
+  POST /students/bulk
+    Request: Multipart file upload (Excel)
+    Response: {"success": true, "created": 50, "duplicates": 5, "errors": [...]}
+    Status: 200
+
+Faculty Endpoints:
+
+  POST /faculty
+    Request: {"name": "Dr. Smith", "email": "smith@email.com",
+              "mobile_no": "9876543210", "department": "CSE", 
+              "profession": "Professor", "valid_till": "2027-12-31"}
+    Response: Faculty object with auto-generated faculty_id
+    Status: 400 if duplicate
+  
+  GET /faculty
+    Response: List of all faculty [...]
+    Status: 200
+  
+  POST /faculty/bulk
+    Request: Multipart file upload (Excel)
+    Response: {"success": true, "created": 30, "duplicates": 2, "errors": [...]}
+    Status: 200
+
+Visitor Endpoints:
+
+  POST /visitors
+    Request: Visitor object with all required fields
+    Response: Visitor object with token and QR code generated
+    Status: 200
+  
+  GET /visitors
+    Response: List of all visitors [...]
+    Status: 200
+  
+  GET /visitors/meeting/{person_id}
+    Response: List of visitors coming to meet person_id
+    Status: 200
+
+Alumni Endpoints:
+
+  POST /alumni
+    Request: Alumni object with all required fields
+    Response: Alumni object with token and QR code generated
+    Status: 200
+  
+  GET /alumni
+    Response: List of all alumni [...]
+    Status: 200
+  
+  GET /alumni/meeting/{person_id}
+    Response: List of alumni coming to meet person_id
+    Status: 200
+  
+  GET /alumni/export?date_range=last_month
+    Response: Excel file download
+    Query params: all|last_month|last_3_months|last_6_months|last_year|last_2_years
+    Status: 200
+
+Event Endpoints:
+
+  POST /events
+    Request: {"event_name": "Tech Fest", "event_type": "Festival",
+              "date_from": "2026-03-01", "date_to": "2026-03-03",
+              "description": "Annual festival"}
+    Response: Event object
+    Status: 200
+  
+  GET /events
+    Response: List of all events [...]
+    Status: 200
+  
+  POST /events/{event_id}/students
+    Request: File upload (Excel) with student data
+    Response: {"success": true, "added": 100, "duplicates": 5, "errors": [...]}
+    Status: 200
+  
+  GET /events/{event_id}/students
+    Response: List of students in event
+    Status: 200
+
+Faculty Registered Visitor Endpoints:
+
+  POST /faculty/register-visitor
+    Request: {"faculty_id": "fact_0001", "visitor_type": "HR",
+              "name": "John", "email": "john@email.com",
+              "mobile_no": "9876543210", "date_from": "2026-03-01",
+              "date_to": "2026-03-05", "valid_till": "2026-03-05T23:59:59Z"}
+    Response: FacultyRegisteredVisitor object
+    Status: 400 if duplicate email/mobile for faculty
+  
+  GET /faculty/{faculty_id}/registered-visitors
+    Response: List of visitors registered by faculty
+    Status: 200
+  
+  POST /faculty/visitor/resend-email
+    Request: {"visitor_id": "visitor_uuid"}
+    Response: {"success": true, "message": "Email resent..."}
+    Status: 200
+
+Search Endpoints:
+
+  GET /search/faculty?query=smith
+    Response: List of matching faculty members
+    Searches: name, mobile_no (case-insensitive)
+    Status: 200
+  
+  GET /search/students?query=s001
+    Response: List of matching students
+    Searches: name, mobile_no, reg_no (case-insensitive)
+    Status: 200
+
+QR Validation Endpoints:
+
+  POST /validate-qr
+    Request: {"token": "token_value"}
+    Response: {"valid": true, "type": "Student", "name": "John", "email": "...", 
+               "valid_till": "...", "details": {...}}
+    OR: {"valid": false, "reason": "QR code expired|not found", "type": "...", "name": "..."}
+    Status: 200
+  
+  GET /debug/token/{token}
+    Response: Debug info showing which collections contain token
+    Status: 200
+
+Dashboard Endpoints:
+
+  GET /dashboard/stats
+    Response: {"visitors_today": 10, "total_students": 500, "total_faculty": 50,
+               "total_visitors": 1000, "total_alumni": 200, "total_events": 5,
+               "total_registered_visitors": 150}
+    Status: 200
+  
+  GET /registered-visitors
+    Response: List of all faculty-registered visitors with faculty names
+    Status: 200
+
+Error Responses:
+  Status 400: Bad request (validation error, duplicate entry)
+  Status 401: Unauthorized (invalid credentials)
+  Status 404: Not found
+  Status 500: Server error
+  
+All responses include status code and error detail message
+
+
+===============================================================================
+8. ENVIRONMENT VARIABLES & API KEYS
+===============================================================================
+
+BACKEND ENVIRONMENT VARIABLES (.env file in /backend directory):
+
+Required Variables:
+
+1. MONGO_URL
+   Description: MongoDB connection string
+   Example: "mongodb://localhost:27017"
+   Alternative (Cloud): "mongodb+srv://user:password@cluster.mongodb.net/db"
+   Default: None (required)
+   Usage: Connects to MongoDB database
+
+2. DB_NAME
+   Description: MongoDB database name
+   Example: "pict_guard_db"
+   Default: None (required)
+   Usage: Selects which database to use in MongoDB
+
+3. CORS_ORIGINS
+   Description: Comma-separated list of allowed origins for CORS
+   Example: "http://localhost:3000,http://localhost:8000"
+   Default: "*" (allow all)
+   Usage: Security setting for cross-origin requests
+
+Optional Variables:
+
+4. GMAIL_PASSWORD
+   Description: Gmail App-specific password for SMTP
+   Example: "xxxx xxxx xxxx xxxx" (16 characters)
+   Default: "" (emails won't send if empty)
+   Important: Use App Password from Gmail, not regular password
+   Setup: 
+     - Enable 2-factor authentication in Gmail
+     - Go to myaccount.google.com/apppasswords
+     - Create app-specific password for Mail/Windows
+     - Copy and paste the 16-character code
+   Usage: Sends QR code emails via Gmail SMTP
+
+5. SENDER_EMAIL
+   Description: Email address to send QR codes from
+   Example: "rudranishinde3101@gmail.com"
+   Default: "onboarding@resend.dev"
+   Usage: From address in email header
+
+6. RESEND_API_KEY
+   Description: Resend API key for email service (alternative to Gmail)
+   Example: "re_xxxxxxxxxxxxxxxxxxxx"
+   Default: "" (Gmail SMTP used if not set)
+   Usage: Optional email provider (not currently fully implemented)
+
+Configuration File Setup:
+  Location: /backend/.env
+  Format: KEY="VALUE"
+  Example:
+    MONGO_URL="mongodb://localhost:27017"
+    DB_NAME="pict_guard_db"
+    CORS_ORIGINS="http://localhost:3000"
+    GMAIL_PASSWORD="xxxx xxxx xxxx xxxx"
+    SENDER_EMAIL="rudranishinde3101@gmail.com"
+
+Loading Variables:
+  from dotenv import load_dotenv
+  load_dotenv(ROOT_DIR / '.env')
+  Then access: os.environ['VARIABLE_NAME']
+
+FRONTEND ENVIRONMENT VARIABLES (.env file in /frontend directory):
+
+Required Variables:
+
+1. REACT_APP_BACKEND_URL
+   Description: Backend API base URL
+   Example: "http://localhost:8001"
+   Default: None (required)
+   Usage: Sets API endpoint for all HTTP requests
+   Usage in code: process.env.REACT_APP_BACKEND_URL
+
+Optional Variables:
+
+2. WDS_SOCKET_PORT
+   Description: Port for webpack dev server socket
+   Example: "443"
+   Default: Auto-detected
+   Usage: Development server communication
+
+3. ENABLE_HEALTH_CHECK
+   Description: Enable health check plugin
+   Example: "false"
+   Default: "true"
+   Usage: Development monitoring
+
+Configuration File Setup:
+  Location: /frontend/.env
+  Format: REACT_APP_KEY="VALUE"
+  Example:
+    REACT_APP_BACKEND_URL="http://localhost:8001"
+    WDS_SOCKET_PORT=443
+    ENABLE_HEALTH_CHECK=false
+
+Loading Variables:
+  In React components: process.env.REACT_APP_VARIABLE_NAME
+  Variables must start with REACT_APP_
+
+API KEYS (Currently Used):
+
+1. Email Service API Keys
+   - Gmail SMTP: Uses Gmail App Password
+   - Resend API: Optional alternative (key not currently configured)
+   
+2. Authentication Tokens
+   - Admin: Simple username/password (hardcoded for demo)
+   - Guard: Username pattern with hardcoded password
+   - User/Student/Faculty: Credentials from database
+   - Generated: UUID tokens for QR codes
+
+3. Database Connection
+   - MongoDB connection string (acts as implicit auth)
+   - No explicit API keys for local MongoDB
+   - Atlas requires password in connection string
+
+Demo Credentials (Hardcoded):
+  Admin:
+    Username: "admin"
+    Password: "admin123"
+  
+  Guard Examples:
+    Username: "guard1", "guard2", "guard3", etc.
+    Password: "guard123" (all guards use same password)
+
+Token Generation:
+  All tokens are UUID version 4 (random unique identifiers)
+  Generated at: uuid.uuid4() in Python
+  Used for: QR code validation
+  Stored in: Database for lookup
+
+Security Notes:
+  - Passwords are hashed using bcrypt (CryptContext)
+  - Email addresses validated using email-validator
+  - CORS configured to allow only specified origins
+  - Demo credentials should be changed in production
+  - Gmail password should never be regular Gmail password (use App Password)
+  - All sensitive data in .env should never be committed to git
+
+Environment Setup Example:
+
+  Backend Setup:
+  ```
+  cd backend
+  python -m venv venv
+  source venv/bin/activate  # On Windows: venv\Scripts\activate
+  pip install -r requirements.txt
+  cp .env.example .env
+  # Edit .env with your values
+  uvicorn server:app --host 0.0.0.0 --port 8001 --reload
+  ```
+
+  Frontend Setup:
+  ```
+  cd frontend
+  yarn install
+  cp .env.example .env
+  # Edit .env with your values
+  yarn start
+  ```
+
+
+===============================================================================
+9. AUTHENTICATION & SECURITY
+===============================================================================
+
+Authentication Methods:
+
+1. Admin Authentication
+   Type: Username + Password (Demo/Development)
+   Endpoint: POST /api/auth/admin/login
+   Credentials: Username: "admin", Password: "admin123"
+   Token: Generated UUID4 for session
+   Storage: localStorage['admin_token']
+   Lifespan: Session-based (until logout)
+   Use Case: System management and configuration
+   Security: Should be changed in production
+
+2. User (Student/Faculty) Authentication
+   Type: Email + Mobile Number
+   Endpoint: POST /api/auth/user/login
+   Process:
+     - User provides email and mobile number
+     - System queries students collection first
+     - If not found, queries faculty collection
+     - Validates both fields match
+   Response: User data including token and role
+   Storage: localStorage['user_data']
+   Lifespan: Session-based
+   Unique Constraints: Email and mobile_no must be unique
+   Security: Database-backed validation
+
+3. Guard Authentication
+   Type: Username + Password (Pattern-based)
+   Endpoint: POST /api/auth/guard/login
+   Credentials: Username pattern: "guard1", "guard2", etc.
+               Password: "guard123"
+   Validation: Username starts with "guard" prefix
+   Token: Guard ID stored in session
+   Storage: localStorage['guard_data']
+   Lifespan: Session-based
+   Multi-User: Each guard has separate login session
+   Security: Simple pattern-based (can enhance in production)
+
+4. QR Code Token Authentication
+   Type: Token-based
+   Generated: UUID version 4 (random, cryptographically secure)
+   Storage: In each collection document
+   Validation: Checked against all collections
+   Expiration: Datetime-based (valid_till field)
+   Uniqueness: Guaranteed unique per document
+   Use Case: Gate access validation
+
+Password Hashing:
+  Library: Passlib with bcrypt
+  Algorithm: bcrypt
+  Configuration: CryptContext(schemes=["bcrypt"], deprecated="auto")
+  Usage: For future password security implementation
+  Current: Admin password is hardcoded (demo only)
+
+Token Management:
+
+  UUID Token Generation:
+    import uuid
+    token = str(uuid.uuid4())
+    Format: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    Security: Cryptographically random
+    Collisions: Virtually impossible with 2^122 possibilities
+
+  Token Usage in QR Codes:
+    - Token embedded in QR code content
+    - Guard scans QR or enters token manually
+    - Token used as lookup key in database
+    - Each token is unique and traceable
+    - Can be regenerated if compromised
+
+Session Management:
+
+  Frontend Storage:
+    localStorage['admin_token'] - Admin session
+    localStorage['user_data'] - Student/Faculty session
+    localStorage['guard_data'] - Guard session
+    
+  Session Check:
+    All protected routes check localStorage on load
+    If token/data missing, redirects to login
+    Clearing localStorage logs user out
+
+  CORS Security:
+    CORSMiddleware configured in FastAPI
+    allow_credentials=True
+    allow_origins: Configurable (default: "*")
+    allow_methods: ["*"]
+    allow_headers: ["*"]
+    Configuration: Via CORS_ORIGINS environment variable
+
+Data Validation:
+
+  Email Validation:
+    Library: email-validator
+    Schema: Pydantic EmailStr type
+    Validation: RFC 5321 compliant
+    Applied to: User registration, faculty, visitors, alumni
+
+  Phone Number Validation:
+    Format: String (10 digits expected)
+    Validation: Basic string type check
+    Constraints: Must be unique per collection (some models)
+    Enhancement: Regex pattern validation recommended
+
+  Request Validation:
+    Framework: Pydantic models
+    Validation: Automatic on API endpoints
+    Error Response: 422 Unprocessable Entity if invalid
+    Fields: Type checking, optional/required enforcement
+
+Security Best Practices:
+
+  1. Input Sanitization
+     - Pydantic auto-validates all inputs
+     - Email format validated
+     - String fields trimmed (.strip())
+     - File uploads validated for type (Excel files)
+
+  2. Database Security
+     - Unique constraints on sensitive fields
+     - No sensitive data in logs
+     - Use prepared statements (Motor handles this)
+     - Connection string in environment variables
+
+  3. API Security
+     - CORS configured
+     - Token-based access to routes
+     - No sensitive data in URLs
+     - All requests logged
+     - Error messages don't leak system info
+
+  4. File Upload Security
+     - Only Excel files (.xlsx, .xls) allowed
+     - Files processed in memory
+     - No file persistence to disk
+     - Size validation recommended
+
+  5. Email Security
+     - Gmail App Password (not regular password)
+     - SMTP with TLS encryption
+     - Email addresses from validated sources
+     - Attachments (QR images) embedded, not linked
+
+Recommended Production Enhancements:
+
+  1. Implement JWT tokens instead of UUID
+  2. Add password change functionality
+  3. Implement role-based access control (RBAC)
+  4. Add rate limiting on login endpoints
+  5. Implement 2FA for admin accounts
+  6. Use environment-specific configurations
+  7. Add API key authentication for certain endpoints
+  8. Implement request signing for critical operations
+  9. Add audit logging for all authentication events
+  10. Implement session timeout (currently infinite)
+
+
+===============================================================================
+10. EMAIL CONFIGURATION
+===============================================================================
+
+Current Email Provider: Gmail SMTP
+
+SMTP Configuration:
+
+  Server: smtp.gmail.com
+  Port: 587
+  Protocol: STARTTLS (TLS encryption)
+  Authentication: App-specific password
+  Sender Email: Configurable via SENDER_EMAIL env variable
+
+Email Library Setup:
+  
+  import smtplib
+  from email.mime.text import MIMEText
+  from email.mime.multipart import MIMEMultipart
+  from email.mime.image import MIMEImage
+  
+  SENDER_EMAIL = os.getenv('SENDER_EMAIL', 'rudranishinde3101@gmail.com')
+  GMAIL_PASSWORD = os.getenv('GMAIL_PASSWORD', '')
+  GMAIL_SMTP_SERVER = 'smtp.gmail.com'
+  GMAIL_SMTP_PORT = 587
+
+Email Sending Function:
+  
+  async def send_qr_email(recipient_email, name, token, valid_till):
+    """Send QR code via Gmail SMTP"""
+    - Generates QR code from token
+    - Creates HTML email with embedded QR image
+    - Connects to Gmail SMTP
+    - Sends email asynchronously
+    - Logs success/failure
+
+Email Content:
+
+  Subject: "PICT Guard - Your Gate Pass QR Code"
+  
+  HTML Template:
+    - Professional branded layout
+    - Recipient's name personalized
+    - Embedded QR code image (no external links)
+    - Validity information displayed
+    - Clear instructions for use
+    - Branded footer with "PICT Guard Team"
+    - Responsive design for all email clients
+    - Base64 encoded images for reliability
+
+Email Sending Triggers:
+
+  1. Student Bulk Upload
+     - When students added via Excel
+     - QR code sent to each student's email
+     - Contains validity date
+
+  2. Faculty Creation
+     - When faculty member added
+     - QR code sent to faculty email
+     - Contains validity period
+
+  3. Event Student Assignment
+     - When student added to event
+     - Sends event-specific QR code
+     - Valid during event dates only
+     - Includes event details
+
+  4. Visitor Registration
+     - When public visitor registers
+     - Sends QR code immediately
+     - 24-hour validity
+
+  5. Alumni Registration
+     - When alumni registers
+     - Sends QR code immediately
+     - 24-hour validity
+
+  6. Faculty Visitor Registration
+     - When faculty registers a visitor
+     - Sends to visitor's email
+     - Valid for specified date range
+
+  7. Email Resend
+     - Manually triggered by faculty/admin
+     - Resends QR code to visitor
+     - Uses same email format
+
+Gmail Setup for App Password:
+
+  Step-by-step:
+  1. Go to myaccount.google.com
+  2. Select "Security" from left menu
+  3. Ensure "2-Step Verification" is enabled
+  4. Go to "App passwords"
+  5. Select "Mail" and "Windows Computer" (or relevant device)
+  6. Google generates 16-character password
+  7. Copy all 16 characters (including spaces)
+  8. Paste into GMAIL_PASSWORD environment variable
+  9. This is NOT your regular Gmail password
+
+Important Notes:
+  - Regular Gmail password will NOT work (security restriction)
+  - App password must be from Google Account settings
+  - Each app password is unique and revocable
+  - Keep app password secret (like a password)
+  - Change app password if compromised
+  - Different devices can have different app passwords
+
+Email Error Handling:
+
+  Async Execution:
+    await asyncio.to_thread(send_email)
+    - Runs in thread pool to avoid blocking
+    - Allows server to continue processing
+    - Timeout: Can be set if needed
+
+  Error Logging:
+    if not GMAIL_PASSWORD:
+      logger.warning("Gmail password not configured")
+    
+    try:
+      # Send email
+    except Exception as e:
+      logger.error(f"Failed to send email: {str(e)}")
+      return False
+
+  Failure Handling:
+    - If email fails, registration still completes
+    - User gets QR code on success screen
+    - Can manually request email resend
+    - System logs all failures
+    - Admin can monitor email delivery
+
+Testing Email Functionality:
+
+  Local Development:
+  1. Create .env file with test Gmail credentials
+  2. Ensure Gmail app password is correct
+  3. Send test registration
+  4. Check email inbox for QR code
+  5. Verify QR code opens successfully
+  6. Validate QR code at guard scanner
+
+Production Email:
+
+  Optional Alternatives:
+  1. SendGrid API
+  2. Resend API (partially configured in code)
+  3. AWS SES
+  4. Azure Communication Services
+  5. Mailgun
+
+  Migration Steps:
+  1. Update send_qr_email function
+  2. Replace SMTP with API client
+  3. Update .env variables
+  4. Test thoroughly before deployment
+  5. Monitor delivery rates
+
+Current Email Status:
+
+  ✓ SMTP connection works
+  ✓ HTML template with styling
+  ✓ QR code embedded as image attachment
+  ✓ Async processing
+  ✓ Error logging
+  ✓ Recipient validation
+  ✓ Personalised subject and greeting
+  
+  ⚠ Requires manual Gmail app password setup
+  ⚠ Single sender email address
+  ⚠ No bounce handling
+  ⚠ No delivery tracking
+  ⚠ Limited to Gmail's rate limits
+
+Troubleshooting:
+
+  Problem: "Failed to send email"
+  Solution: Check GMAIL_PASSWORD env variable is set correctly
+            Check 2FA enabled on Gmail account
+            Check app password (not regular password)
+            Verify internet connection
+
+  Problem: "Invalid recipient email"
+  Solution: Email validation failed
+            Check email format in registration form
+            Ensure valid email addresses in database
+
+  Problem: "SMTP connection refused"
+  Solution: Check SMTP server name (smtp.gmail.com)
+            Check port 587 is accessible
+            Check Gmail allows SMTP (security settings)
+            Try on different network if corporate firewall
+
+  Problem: Email sent but not received
+  Solution: Check spam folder
+            Verify sender email address
+            Check recipient email is correct
+            Gmail may rate limit if too many sent quickly
+
+
+===============================================================================
+11. QR CODE SYSTEM
+===============================================================================
+
+QR Code Generation:
+
+  Library: qrcode (Python QR code generator)
+  
+  Generation Process:
+    import qrcode
+    
+    def generate_qr_code(token: str) -> str:
+      qr = qrcode.QRCode(version=1, box_size=10, border=4)
+      qr.add_data(token)
+      qr.make(fit=True)
+      img = qr.make_image(fill_color="black", back_color="white")
+      buffer = io.BytesIO()
+      img.save(buffer, format="PNG")
+      return base64.b64encode(buffer.read()).decode()
+    
+  QR Specifications:
+    Version: 1 (smallest that fits data)
+    Box Size: 10 pixels per module
+    Border: 4 modules white border
+    Format: PNG image
+    Encoding: Base64 string (for embedding in HTML/emails)
+    Colors: Black QR code on white background
+    Size: Approximately 200x200 pixels (auto-calculated)
+
+QR Code Content:
+
+  Payload: UUID token string
+  Format: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  Uniqueness: One token per person/event registration
+  Length: 36 characters (standard UUID format)
+  Encoding: ASCII (no special characters)
+
+Token Generation:
+
+  Method: Python uuid module
+  import uuid
+  token = str(uuid.uuid4())
+  
+  Characteristics:
+    - Version 4: Cryptographically random
+    - Unique: 2^122 possible combinations
+    - No personal information encoded
+    - Non-sequential (cannot predict next token)
+    - Globally unique (unlikely collision)
+    - Format: 8-4-4-4-12 hex digits
+
+Token Management:
+
+  Generation:
+    - Created when each record is created
+    - Default in Pydantic models
+    - Field default_factory=lambda: str(uuid.uuid4())
+    - Generated once, never changed
+
+  Storage:
+    - Stored in "token" field of each collection
+    - Indexed for fast lookup
+    - Unique constraint enforced
+    - Never logged or exposed in plain text
+
+  Validity Verification:
+    - Token existence checked in database
+    - Valid_till datetime compared with current time
+    - If current_time <= valid_till: VALID
+    - If current_time > valid_till: EXPIRED
+    - If token not found: NOT FOUND
+
+QR Code Display:
+
+  Frontend Library: qrcode.react
+  
+  Component Usage:
+    import { QRCodeSVG } from "qrcode.react";
+    
+    <QRCodeSVG
+      value={token}              // UUID token string
+      size={256}                 // Size in pixels
+      level={"H"}                // Error correction level (H=30%)
+      includeMargin={true}       // Include margin around QR
+      marginSize={2}             // Margin in modules
+    />
+  
+  Display Locations:
+    1. User portal page (student/faculty)
+    2. Visitor/alumni registration success screen
+    3. Event student registration confirmation
+    4. Faculty visitor registration confirmation
+    5. Email as embedded image
+
+QR Code Validation Flow:
+
+  Guard Scanner Input:
+    Option 1: Scan with hardware scanner
+    Option 2: Paste token manually
+    
+    Input -> Token extraction -> Database lookup
+  
+  Validation Steps:
+    1. Extract token from QR or manual entry
+    2. Query token across all collections:
+       - students
+       - faculty
+       - visitors
+       - alumni
+       - event_students
+       - faculty_registered_visitors
+    3. Find matching document
+    4. Get valid_till (or valid_to for events)
+    5. Compare with current time (UTC)
+    6. Return result: valid/expired/not_found
+
+  Validation Response:
+    IF VALID:
+      {
+        "valid": true,
+        "type": "Student|Faculty|Visitor|Alumni|Event Student|Registered Visitor",
+        "name": "Person Name",
+        "email": "person@email.com",
+        "valid_till": "2026-12-31T23:59:59Z",
+        "details": { ...full record... }
+      }
+    
+    IF EXPIRED:
+      {
+        "valid": false,
+        "reason": "QR code expired",
+        "type": "Student",
+        "name": "Person Name",
+        "expired_on": "2026-12-31T00:00:00Z"
+      }
+    
+    IF NOT FOUND:
+      {
+        "valid": false,
+        "reason": "QR code not found"
+      }
+
+QR Code Validity Periods:
+
+  Students:
+    - Calculated based on current_year
+    - Year 1: 3 years from creation
+    - Year 2: 2 years from creation
+    - Year 3: 1 year from creation
+    - Year 4: 1 year from creation
+    - Cannot be manually extended
+
+  Faculty:
+    - Set by admin at creation
+    - Can be modified by admin
+    - Depends on faculty member status
+    - Typically longer than students (1-5 years)
+
+  Visitors:
+    - Fixed: 24 hours from registration
+    - Non-renewable (must re-register for new access)
+    - Exact: Creation_time + 24 hours
+
+  Alumni:
+    - Fixed: 24 hours from registration
+    - Non-renewable (must re-register)
+    - Exact: Creation_time + 24 hours
+
+  Event Students:
+    - Event-specific dates
+    - Valid from event start date
+    - Valid until event end date
+    - valid_from and valid_to fields
+
+  Faculty Registered Visitors:
+    - Set by faculty at registration
+    - Date range based (date_from to date_to)
+    - Converted to single valid_till datetime
+    - Can be as short as 1 day or as long as needed
+
+Datetime Handling:
+
+  Timezone: All times in UTC (Zulu time)
+  Format: ISO 8601 format with Z suffix
+  Example: "2026-03-15T10:30:00Z"
+  
+  Python Conversion:
+    from datetime import datetime, timezone
+    
+    # Create UTC datetime
+    utc_now = datetime.now(timezone.utc)
+    
+    # Add days
+    future = utc_now + timedelta(days=365)
+    
+    # Convert to ISO string
+    iso_string = utc_now.isoformat()
+    
+    # Parse from ISO string
+    parsed = datetime.fromisoformat(iso_string.replace("Z", "+00:00"))
+    
+    # Compare for validity
+    is_valid = datetime.now(timezone.utc) <= valid_till_datetime
+
+QR Code Security:
+
+  Strength:
+    - UUID tokens are cryptographically random
+    - Each token is unique globally
+    - Tokens not sequential (cannot predict)
+    - Cannot reverse-engineer from QR code
+    - No personal data in token itself
+
+  Weaknesses:
+    - QR code can be shared/forwarded
+    - Token can be extracted from QR visually
+    - Currently no rate limiting on validation
+    - No tracking of failed attempts
+    - Web QR codes not protected from screenshot
+
+  Recommendations:
+    1. Add rate limiting on QR validation
+    2. Log all validation attempts (success/failure)
+    3. Alert on repeated failed attempts
+    4. Consider time-limited tokens (rotate hourly)
+    5. Add validation attempt counters
+    6. Implement geofencing (optional)
+    7. Cross-check with other records (name, email)
+
+Debug Features:
+
+  Debug Endpoint: GET /api/debug/token/{token}
+  
+  Returns:
+    {
+      "token": "token_value",
+      "found_in": [
+        {
+          "collection": "students",
+          "name": "John Doe",
+          "email": "john@email.com",
+          "validity_field": "valid_till",
+          "valid_till": "2027-12-31T00:00:00Z",
+          "current_time": "2026-03-15T10:30:00Z",
+          "is_valid": true
+        }
+      ],
+      "collections_checked": ["students", "faculty", "visitors", ...]
+    }
+  
+  Use Cases:
+    - Troubleshooting validation issues
+    - Testing QR codes
+    - Finding which collection contains token
+    - Checking validity manually
+    - Debugging date parsing
+
+QR Code Regeneration:
+
+  Can be:
+    - NOT automatically regenerated
+    - Can be manually regenerated if needed
+    - Would require new QR code distribution
+    - Old token would still be valid until expiration
+
+  Process for reissue:
+    1. Generate new UUID token
+    2. Create new QR code
+    3. Send new email with QR
+    4. Old QR continues to work (same record)
+    5. Delete old token option (not implemented)
+
+Future Enhancements:
+
+    1. Dynamic QR codes (update content without changing code)
+    2. Short-lived tokens (15-30 minute validity)
+    3. One-time use tokens (invalidate after validation)
+    4. Rotation-based tokens (hourly/daily rotation)
+    5. QR code stamping (add timestamp/validation info)
+    6. Biometric linking (QR + facial recognition)
+    7. Blockchain verification (distributed trust)
+    8. NFC alternative (for users without cameras)
+
+
+===============================================================================
+12. FRONTEND PAGES & COMPONENTS
+===============================================================================
+
+Frontend Framework: React 19
+Styling: Tailwind CSS + Shadcn/UI
+Routing: React Router DOM
+HTTP Client: Axios
+Component Library: Shadcn/UI (50+ pre-built components)
+Icons: Lucide Icons
+
+Main Pages (in /frontend/src/pages/):
+
+1. HOME PAGE (Home.js)
+   - Public landing page
+   - Navigation to all user types
+   - Quick links to:
+     * Admin login (/admin/login)
+     * User login (/user/login)
+     * Guard login (/guard/login)
+     * Visitor registration (/visitor/register)
+     * Alumni registration (/alumni/register)
+   - Feature highlights
+   - Call-to-action buttons
+
+2. ADMIN LOGIN PAGE (AdminLogin.js)
+   - Username input
+   - Password input
+   - Submit button (Sign In)
+   - Back to home link
+   - Error messaging (invalid credentials)
+   - Loading state during login
+
+3. ADMIN DASHBOARD (AdminDashboard.js)
+   - Logout button in header
+   - Statistics cards showing:
+     * Visitors today
+     * Total students
+     * Total faculty
+     * Total visitors
+     * Total alumni
+     * Total events
+     * Total registered visitors
+   
+   - Tab 1: Dashboard (Statistics view)
+   - Tab 2: Students Management
+     * List of all students
+     * Add single student button/dialog
+     * Bulk upload excel feature
+     * Download template
+     * Export student list
+     * Search/filter students
+   
+   - Tab 3: Faculty Management
+     * List of all faculty
+     * Add single faculty button/dialog
+     * Bulk upload excel feature
+     * Download template
+     * Export faculty list
+     * Search/filter faculty
+   
+   - Tab 4: Events Management
+     * List of all events
+     * Create new event button/dialog
+     * Add students to event
+     * View event details
+     * List students in event
+   
+   - Tab 5: Registered Visitors
+     * List of faculty-registered visitors
+     * Shows faculty name, visitor details
+     * Resend email button for each visitor
+     * Filter by faculty
+     * Export visitor data
+
+4. USER LOGIN PAGE (UserLogin.js)
+   - Email input
+   - Mobile number input
+   - Submit button (Sign In)
+   - Separate tabs for Student/Faculty (or combined form)
+   - Error messaging
+   - Loading state
+   - Back to home link
+
+5. USER PORTAL (UserPortal.js)
+   - Header with user name and logout button
+   - User type indicator (Student/Faculty)
+   
+   If Student:
+     * Digital ID card showing:
+       - Name
+       - Registration number
+       - Year
+       - Email
+       - Mobile number
+       - Validity date
+       - QR code display
+     * Visitor list section:
+       - Shows visitors coming to meet student
+       - Visitor details: name, email, mobile (masked), purpose
+       - Photo of visitor
+       - Validity period
+     * Alumni list section:
+       - Shows alumni coming to meet student
+       - Alumni details: name, company, designation
+       - Photo of alumni
+       - Whom they want to meet
+   
+   If Faculty:
+     * Digital ID card showing:
+       - Name
+       - Faculty ID (fact_XXXX)
+       - Department
+       - Profession
+       - Email
+       - Mobile number
+       - Validity date
+       - QR code display
+     * Register Visitor button (unique to faculty)
+       - Opens visitor registration dialog
+       - Form fields:
+         * Visitor type: dropd own (HR, Relative, Other Faculty, Student, Other)
+         * Name
+         * Email
+         * Mobile number
+         * Date from (date picker)
+         * Date to (date picker)
+         * Valid till (datetime picker)
+       - Submit button
+       - Error handling
+     * Registered Visitors list:
+       - Table showing all visitors registered by faculty
+       - Columns: Name, Type, Email, Mobile, Valid Dates
+       - Resend email button for each visitor
+       - Shows "No registered visitors yet" if empty
+       - Scrollable if many visitors
+     * Visitor meetings section:
+       - Shows external visitors (not faculty-registered)
+       - Visitor details and photos
+     * Alumni meetings section:
+       - Shows alumni coming to meet faculty
+       - Alumni details and photos
+
+   Real-time Features:
+     - Fetch meetings on page load
+     - Fetch registered visitors when opening dialog
+     - Auto-refresh option
+     - Loading states
+     - Toast notifications
+
+6. VISITOR REGISTRATION PAGE (VisitorRegistration.js)
+   - Multi-step form (Form -> Camera -> Success)
+   - Step 1: Registration Form
+     * Full Name
+     * Phone Number (10 digits)
+     * Email
+     * Gender dropdown
+     * Date of Birth
+     * ID Type dropdown
+     * ID Number
+     * ID Proof file upload (optional)
+     * Visitor Type dropdown (student/faculty/visitor/worker)
+     * Person to Visit search/select
+     * Purpose text field
+   
+   - Step 2: Photo Capture
+     * Webcam preview
+     * "Capture Photo" button with countdown
+     * 3-second countdown timer
+     * Retake button option
+     * Photo preview after capture
+   
+   - Step 3: Success Screen
+     * Large QR code display
+     * Validity period (24 hours)
+     * Registration details summary
+     * Download QR code button
+     * Share QR code button
+     * "New Registration" button to start over
+     * Email confirmation message
+   
+   Student/Faculty Search:
+     - Real-time search as you type
+     - Filters based on visitor type
+     - Shows: Name, Phone (masked), Email
+     - Click to select
+
+7. ALUMNI REGISTRATION PAGE (AlumniRegistration.js)
+   - Multi-step form (Form -> Camera -> Success)
+   - Step 1: Registration Form
+     * First Name
+     * Middle Name (optional)
+     * Last Name
+     * Email
+     * Secondary Email (optional)
+     * Mobile Number
+     * Secondary Phone (optional)
+     * Enrollment Number
+     * Degree
+     * Department
+     * Address
+     * Designation (current job title)
+     * Company (current employer)
+     * Year of Joining (to college)
+     * Year of Passing (from college)
+     * Sub Institute (college name)
+     * LinkedIn Profile (optional)
+     * Whom to Meet dropdown (faculty/student/visitor)
+     * Selected Person search/select
+   
+   - Step 2: Photo Capture
+     * Webcam preview
+     * Countdown timer (3 seconds)
+     * Capture and retake options
+     * Photo preview
+   
+   - Step 3: Success Screen
+     * QR code display
+     * Validity (24 hours)
+     * Alumni summary information
+     * Download/share options
+     * Email confirmation
+   
+   Search Features:
+     - Search faculty/students by name or contact
+     - Real-time filtering
+     - Click to select
+     - Selected person shown with selected indicator
+
+8. GUARD LOGIN PAGE (GuardLogin.js)
+   - Username input ("guard1", "guard2", etc.)
+   - Password input ("guard123")
+   - Submit button (Sign In)
+   - Error messaging
+   - Loading state
+   - Back to home link
+
+9. GUARD SCANNER PAGE (GuardScanner.js)
+   - Minimal, full-screen interface
+   - Large QR code input field
+   - Focus on ease of scanning
+   
+   Normal State (Waiting for scan):
+     * Title: "Scan QR Code"
+     * Input field for token/QR code
+     * Instructions: "Scan QR code or paste token"
+     * Logout button
+     * Guard info (guard1, etc.)
+   
+   Valid QR State (Green screen):
+     * Full-screen green background
+     * Large checkmark icon
+     * Person details:
+       * Name
+       * Email
+       * User Type (Student/Faculty/Visitor/etc)
+       * Validity period
+     * "Access Granted" message
+     * Auto-clears in 5 seconds
+     * Countdown timer visible
+   
+   Invalid/Expired QR State (Red screen):
+     * Full-screen red background
+     * Large X icon
+     * Error message:
+       - "QR code expired" (if found but expired)
+       - "QR code not found" (if not in database)
+     * Details if found:
+       - Name
+       - Email
+       - Expiration time (if expired)
+     * "Access Denied" message
+     * Auto-clears in 5 seconds
+     * Countdown timer
+   
+   Additional Features:
+     * Countdown display (5, 4, 3, 2, 1)
+     * Manual refresh button
+     * Toast notifications for errors
+     * Auto-focus on input field
+     * Audio/visual feedback options (not implemented)
+
+UI Components Used (from Shadcn/UI):
+
+  Buttons
+    <Button>
+    <Button variant="ghost">
+    Variants: default, secondary, outline, ghost, destructive
+    States: normal, loading, disabled
+
+  Inputs & Forms
+    <Input> - Text input fields
+    <Label> - Form field labels
+    <Textarea> - Multi-line text
+    <Select> - Dropdown selections
+    <DatePicker> - Date selection
+    <Checkbox> - Boolean options
+
+  Tables
+    <Table> - Data display
+    <TableHeader> - Column headers
+    <TableBody> - Rows
+    <TableCell> - Individual cells
+
+  Dialogs
+    <Dialog> - Modal dialogs
+    <DialogTrigger> - Opens dialog
+    <DialogContent> - Dialog content
+    <DialogHeader> - Dialog title
+    <DialogTitle>
+
+  Cards
+    <Card> - Container for content
+    <CardHeader> - Card title area
+    <CardContent> - Card body
+    <CardFooter> - Card actions
+
+  Tabs
+    <Tabs> - Tabbed interface
+    <TabsList> - Tab buttons
+    <TabsContent> - Tab content
+
+  Alert
+    <Alert> - Alert messages
+    Toast notifications - Via Sonner library
+
+  Toaster/Toast
+    from sonner import toast
+    toast.success("Message")
+    toast.error("Error message")
+    toast.warning("Warning")
+    toast.info("Info")
+
+Styling Approach:
+
+  Tailwind CSS Classes:
+    - Utility-first CSS
+    - Applied directly to JSX elements
+    - Examples:
+      * className="min-h-screen bg-slate-50"
+      * className="w-full max-w-md"
+      * className="flex items-center justify-center"
+      * className="p-4 mb-6 space-y-4"
+  
+  Responsive Design:
+    - Mobile-first approach
+    - Breakpoints: sm, md, lg, xl, 2xl
+    - Example: className="w-full md:w-1/2 lg:w-1/3"
+  
+  Dark Mode:
+    - Not currently implemented
+    - Can be added via Tailwind dark: prefix
+
+Icon Library (Lucide Icons):
+
+  Used Icons:
+    ShieldCheck - Security/protection
+    LogOut - Logout action
+    Users - Group/people
+    Calendar - Events/dates
+    ScanLine - QR code scanning
+    School - Students/education
+    Upload - File upload
+    Plus - Add/create
+    Download - Export/download
+    User - Single person
+    MapPin - Location
+    Briefcase - Work/profession
+    Phone - Contact
+    Mail - Email
+    Send - Submit/send
+    Trash2 - Delete
+    Camera - Photo capture
+    Search - Search/find
+    X - Close/cancel
+    CheckCircle - Success
+    XCircle - Error
+    RefreshCw - Refresh/reload
+
+State Management:
+
+  Local State (React hooks):
+    const [userData, setUserData] = useState(null)
+    const [loading, setLoading] = useState(false)
+    const [formData, setFormData] = useState({})
+  
+  Local Storage:
+    localStorage.setItem('admin_token', token)
+    localStorage.getItem('user_data')
+    localStorage.removeItem('admin_token')
+  
+  Props Passing:
+    Basic prop drilling for connected components
+    No Redux or Context API extensively used
+
+API Communication:
+
+  Base URL Configuration:
+    const BACKEND_URL = process.env.REACT_APP_BACKEND_URL
+    const API_URL = `${BACKEND_URL}/api`
+  
+  HTTP Methods:
+    GET - Fetch data
+    POST - Create/submit data
+    Axios instance: axios.get(), axios.post()
+  
+  Error Handling:
+    try-catch blocks
+    Toast notifications for errors
+    User-friendly error messages
+    Fallback UI states
+
+Accessibility:
+
+  Features:
+    - Semantic HTML elements
+    - Form labels with htmlFor attributes
+    - Button accessibility
+    - Keyboard navigation support
+    - Focus states
+    - ARIA attributes where needed
+    - Alt text for images
+  
+  Not Fully Implemented:
+    - Screen reader testing
+    - Color contrast audit
+    - WCAG standards verification
+
+Testing:
+  
+  data-testid attributes used for:
+    - admin-dashboard
+    - admin-login-form
+    - admin-username-input
+    - admin-password-input
+    - guard-scanner
+    - etc.
+  
+  Used for: Automated UI testing with testing libraries
+
+
+===============================================================================
+13. DATA FLOW & WORKFLOWS
+===============================================================================
+
+Workflow 1: STUDENT REGISTRATION & GATE ENTRY
+
+  1. Admin Side:
+     - Admin logs in (/admin/login with admin/admin123)
+     - Goes to Students tab
+     - Clicks "Add Student" or does bulk upload
+     - If bulk: Upload Excel with: RegNo, Name, Email, Mobile, DOB, Year
+     - If single: Fill form with student details
+     - Backend:
+       * Checks if student already exists (by reg_no, email, or mobile)
+       * Generates UUID token
+       * Calculates valid_till based on current_year
+       * Inserts into students collection
+       * Sends QR code email
+       * Returns student object
+  
+  2. Student Login & Portal:
+     - Student goes to /user/login
+     - Enters email and mobile number (from registration)
+     - Backend validates:
+       * Queries students collection
+       * Matches email AND mobile_no
+       * Returns student data and role="student"
+     - Frontend stores in localStorage['user_data']
+     - Redirects to /user/portal
+     - Displays digital ID card with QR code
+  
+  3. Gate Entry:
+     - Student shows QR code to guard
+     - Guard scans QR code (or enters token manually)
+     - Guard's scanner page validates:
+       * POST /api/validate-qr with token
+       * Backend checks all collections for matching token
+       * Finds student record
+       * Checks: current_time <= valid_till
+       * Returns valid=true with student details
+     - Guard screen shows GREEN with student details
+     - Access granted
+     - Auto-clears after 5 seconds
+
+  Database Collections Involved:
+    - students (main collection)
+    - logs (optional, for audit trail)
+
+  Data Flow:
+    Admin Input -> Backend Validation -> DB Insert -> Email Send -> QR Generated
+    -> Student Login -> Token Lookup -> Guard Validation -> Green/Red Screen
+
+
+Workflow 2: VISITOR REGISTRATION & GATE ENTRY
+
+  1. Public Registration (No Login):
+     - Visitor goes to /visitor/register
+     - Fills form:
+       * Full Name, Phone, Email, Gender, DOB, ID Type, ID Number
+       * Visitor Type (student/faculty/visitor/worker)
+       * Person to Visit (searches faculty/students)
+       * Purpose
+     - Clicks "Capture Photo"
+     - Takes selfie with camera
+     - Uploads ID proof (optional)
+     - Submits form
+  
+  2. Backend Processing:
+     - Validates form data
+     - Generates UUID token
+     - Creates QR code from token
+     - Encodes photo as base64
+     - Inserts into visitors collection
+     - Sends email with QR code
+     - Returns registration data
+  
+  3. Success Screen:
+     - Shows QR code
+     - Displays validity (24 hours)
+     - Email confirmation message
+     - Options to download/share QR
+  
+  4. Gate Entry:
+     - Visitor shows QR to guard
+     - Guard scans/enters token
+     - Backend validates:
+       * Finds in visitors collection
+       * Checks: current_time <= valid_till
+       * Must be within 24 hours
+     - If valid: GREEN screen
+     - If expired: RED screen saying "QR code expired"
+     - Access granted/denied
+
+  Database Collections:
+    - visitors (main storage)
+    - faculty (for search results)
+    - students (for search results)
+
+  Email Delivery:
+    - Async Bluetooth SMTP
+    - Gmail account: SENDER_EMAIL env variable
+    - HTML template with embedded QR code
+    - Sent immediately after registration
+
+
+Workflow 3: ALUMNI REGISTRATION & UNIVERSITY VISIT
+
+  1. Public Registration (No Login):
+     - Alumni goes to /alumni/register
+     - Fills comprehensive form:
+       * Name (first, middle, last)
+       * Contact (email, phone, secondary)
+       * Academic info (enrollment, degree, department, years)
+       * Work info (company, designation, address)
+       * Professional (LinkedIn profile)
+       * Whom to meet (faculty/student/visitor)
+     - Captures selfie
+     - Submits form
+  
+  2. Backend Processing:
+     - Validates all required fields
+     - Generates UUID token
+     - Creates QR code
+     - Encodes photo as base64
+     - Inserts into alumni collection
+     - Sends email with QR code
+     - Returns alumni object
+  
+  3. Success Screen:
+     - Shows QR code
+     - Displays registration details
+     - 24-hour validity
+  
+  4. Gate Entry:
+     - Same as visitor workflow
+     - QR scanned at gate
+     - Validated in alumni collection
+     - 24-hour validity check
+  
+  5. Admin Export:
+     - Admin can export alumni data
+     - GET /alumni/export?date_range=last_6_months
+     - Returns Excel file with all alumni info
+     - Includes: name, contact, academic, work, profile info
+     - Filtered by date range
+
+  Database Collections:
+    - alumni (main storage)
+    - faculty (for search)
+    - students (for search)
+
+
+Workflow 4: FACULTY VISITOR REGISTRATION (Faculty-Managed)
+
+  1. Faculty Login:
+     - Faculty logs in with email & mobile
+     - Goes to /user/portal
+     - Sees "Register Visitor" button
+  
+  2. Visitor Registration:
+     - Faculty clicks "Register Visitor"
+     - Dialog opens with form:
+       * Visitor Type (HR, Relative, Other Faculty, Student, Other)
+       * Name, Email, Mobile
+       * Date From & Date To (access period)
+       * Valid Till (QR validity datetime)
+     - Submits form
+  
+  3. Backend Processing:
+     - Validates form data
+     - Checks for duplicates:
+       * Email must be unique per faculty
+       * Mobile must be unique per faculty
+     - Generates UUID token
+     - Creates QR code
+     - Inserts into faculty_registered_visitors collection
+     - Sends email to visitor with QR code
+     - Returns visitor object
+  
+  4. Faculty Registered Visitors List:
+     - List displays all visitors registered by faculty
+     - Shows: Name, Type, Email, Mobile, Valid Dates
+     - "Resend Email" button for each visitor
+     - Real-time updates
+  
+  5. Visitor Access Period:
+     - Valid from date_from to date_to
+     - Access limited to specified date range
+     - QR code valid_till field for extended flexibility
+  
+  6. Gate Entry:
+     - Visitor (invited by faculty) comes to campus
+     - Shows QR code at gate
+     - Guard validates
+     - Backend checks faculty_registered_visitors collection
+     - Validates date range
+     - Access granted if within valid dates
+
+  Database Collections:
+    - faculty_registered_visitors (main)
+    - faculty (for lookups)
+
+  Email:
+    - Sent to visitor's email provided by faculty
+    - Professional template with QR code
+    - Can be resent by faculty if needed
+
+
+Workflow 5: EVENT-BASED ACCESS (Time-Bound)
+
+  1. Admin Creates Event:
+     - Admin logs in
+     - Goes to Events tab
+     - Clicks "Create Event"
+     - Fills form:
+       * Event Name (e.g., "Tech Fest 2026")
+       * Event Type (Festival, Workshop, etc.)
+       * Date From (start date)
+       * Date To (end date)
+       * Description
+     - Creates event
+  
+  2. Admin Adds Students to Event:
+     - Goes to event
+     - Clicks "Add Students"
+     - Uploads Excel with:
+       * Student RegNo
+       * Optional: student details (if not in DB)
+     - Backend:
+       * Looks up each student
+       * Creates event_student record
+       * Generates event-specific QR token
+       * Sets validity: event start date to end date
+       * Sends email to student
+  
+  3. Student Access:
+     - Student receives email with event-specific QR code
+     - QR code valid ONLY during event dates
+     - Cannot use on other dates
+  
+  4. Gate Entry During Event:
+     - Student shows QR at gate during event
+     - Guard validates:
+       * Finds in event_students collection
+       * Checks validity: now >= valid_from AND now <= valid_to
+       * Access granted if within date range
+     - After event ends: QR expired (RED screen)
+
+  Database Collections:
+    - events (contains event definition)
+    - event_students (contains student assignments)
+    - students (for lookups)
+
+  Unique Features:
+    - Event-specific QR codes
+    - Time-bound access (event dates only)
+    - Bulk assignment capability
+    - Automatic email notification
+
+
+Workflow 6: ADMIN DASHBOARD STATISTICS
+
+  1. Dashboard Load:
+     - Admin navigates to /admin/dashboard
+     - Frontend calls GET /api/dashboard/stats
+  
+  2. Backend Aggregation:
+     - Counts visitors from today:
+       * current_date >= "2026-03-15T00:00:00Z"
+     - Counts total per collection:
+       * db.students.count_documents({})
+       * db.faculty.count_documents({})
+       * db.visitors.count_documents({})
+       * db.alumni.count_documents({})
+       * db.events.count_documents({})
+       * db.faculty_registered_visitors.count_documents({})
+  
+  3. Data Display:
+     - Shows statistics cards
+     - Real-time updates on page load
+     - Refresh button available
+     - Visual representation
+
+  Collections Queried:
+    - students
+    - faculty
+    - visitors
+    - alumni
+    - events
+    - faculty_registered_visitors
+
+
+Workflow 7: EXCEL BULK OPERATIONS
+
+  A. Bulk Upload Students:
+     1. Admin prepares Excel file with columns:
+        [RegNo, Name, Email, Mobile, DOB, Year]
+     2. Uploads file at Students tab
+     3. Backend processes:
+        - Reads Excel using openpyxl
+        - Validates each row
+        - Year must be 1-4
+        - Email format validated
+        - All required fields checked
+        - Duplicate detection: reg_no, email, mobile
+        - Generates UUID token for each
+        - Calculates valid_till based on year
+        - Inserts into students collection
+        - Sends QR email to each student
+     4. Response shows:
+        - Number created
+        - Number duplicates (skipped)
+        - Detailed error list per row
+     5. Download template available
+  
+  B. Bulk Upload Faculty:
+     1. Excel file with columns:
+        [Name, Email, Mobile, Department, Profession, ValidTill]
+     2. Backend processes:
+        - Validates each row
+        - Generates sequential faculty_id (fact_0001, etc.)
+        - Email unique check
+        - Mobile unique check
+        - All required fields check
+        - Inserts into faculty collection
+        - Sends QR email to each faculty
+     3. Response shows:
+        - Number created
+        - Duplicates skipped
+        - Error details
+  
+  C. Bulk Add Students to Event:
+     1. Excel file with columns:
+        [StudentRegNo, ...]
+     2. Optional: Manual entry with full student details
+     3. Backend processes:
+        - Looks up student by reg_no
+        - If not found, uses manual entries
+        - Generates event_student record
+        - Event-specific QR token
+        - Validity: event dates
+        - Sends QR email
+     4. Response shows:
+        - Added count
+        - Duplicates
+        - Error details
+
+  Error Handling:
+    - Row-by-row processing
+    - One error doesn't stop batch
+    - Detailed error messages per row
+    - Line number, field name, error reason
+    - Summary at end
+
+
+Key Data Relationships:
+
+  students -> event_students (via reg_no in event)
+  students -> visitors (via person_to_visit_id)
+  students -> alumni (via selected_person_id)
+  students -> faculty_registered_visitors (indirect via faculty)
+  
+  faculty -> event (no direct relationship, managed separately)
+  faculty -> visitors (via person_to_visit_id)
+  faculty -> alumni (via selected_person_id)
+  faculty -> faculty_registered_visitors (via faculty_id)
+  
+  events -> event_students (via event_id)
+  events -> no other direct relationships
+  
+  All -> QR validation (token in all collections)
+
+Critical Datetime Handling:
+
+  All timestamps stored as ISO 8601 UTC:
+    Format: "2026-03-15T10:30:00Z"
+    Timezone: UTC (Zulu time)
+    No timezone offsets stored
+  
+  Validity Checks always use UTC:
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    is_valid = now <= valid_till_datetime
+  
+  Date Parsing:
+    Handles both with and without "Z"
+    valid_till.replace("Z", "+00:00")
+    datetime.fromisoformat(iso_string)
+
+
+===============================================================================
+END OF DOCUMENTATION
+===============================================================================
+
+Document Version: 1.0
+Last Updated: 2026-03-15
+Comprehensive Coverage: All major features, workflows, API endpoints, database
+schema, technology stack, and user functionalities documented.
+
+For questions or updates, refer to project README files and inline code comments.

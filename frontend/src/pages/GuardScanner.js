@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { ShieldCheck, LogOut, ScanLine, CheckCircle, XCircle } from 'lucide-react';
+import { ShieldCheck, LogOut, ScanLine, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,7 +15,19 @@ export default function GuardScanner() {
   const [validationResult, setValidationResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [guardData, setGuardData] = useState(null);
+  const [autoRefreshCountdown, setAutoRefreshCountdown] = useState(0);
   const inputRef = useRef(null);
+
+  // Auto-refresh countdown effect
+  useEffect(() => {
+    if (autoRefreshCountdown <= 0) return;
+    
+    const timer = setTimeout(() => {
+      setAutoRefreshCountdown(autoRefreshCountdown - 1);
+    }, 1000);
+    
+    return () => clearTimeout(timer);
+  }, [autoRefreshCountdown]);
 
   useEffect(() => {
     const data = localStorage.getItem('guard_data');
@@ -40,18 +52,39 @@ export default function GuardScanner() {
 
       setValidationResult(response.data);
       
-      // Auto clear after 5 seconds
+      // Auto clear after 5 seconds for both valid and invalid
+      setAutoRefreshCountdown(5);
       setTimeout(() => {
         setValidationResult(null);
         setToken('');
+        setAutoRefreshCountdown(0);
         inputRef.current?.focus();
       }, 5000);
     } catch (error) {
+      console.error('Validation error:', error);
+      const errorMessage = error.response?.data?.detail || 'Token not found';
+      setValidationResult({ valid: false, reason: errorMessage });
+      
+      // Auto refresh on error as well
+      setAutoRefreshCountdown(5);
+      setTimeout(() => {
+        setValidationResult(null);
+        setToken('');
+        setAutoRefreshCountdown(0);
+        inputRef.current?.focus();
+      }, 5000);
+      
       toast.error('Failed to validate QR code');
-      setValidationResult({ valid: false, reason: 'Validation failed' });
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleManualRefresh = () => {
+    setValidationResult(null);
+    setToken('');
+    setAutoRefreshCountdown(0);
+    inputRef.current?.focus();
   };
 
   const handleLogout = () => {
@@ -150,30 +183,49 @@ export default function GuardScanner() {
             {validationResult.valid ? (
               <>
                 <CheckCircle className="w-32 h-32 mx-auto mb-8 animate-bounce" />
-                <h2 className="text-6xl font-bold mb-4 tracking-tight">ACCESS GRANTED</h2>
+                <h2 className="text-6xl font-bold mb-4 tracking-tight">✓ ACCESS GRANTED</h2>
                 <p className="text-3xl mb-8">{validationResult.name}</p>
-                <div className="bg-white/20 backdrop-blur-sm rounded-xl p-6 max-w-md mx-auto">
-                  <p className="text-xl mb-2">Type: {validationResult.type}</p>
-                  <p className="text-xl mb-2">Email: {validationResult.email}</p>
-                  <p className="text-xl">Valid Until: {new Date(validationResult.valid_till).toLocaleDateString()}</p>
+                <div className="bg-white/20 backdrop-blur-sm rounded-xl p-6 max-w-md mx-auto mb-8">
+                  <p className="text-xl mb-2">🏷️ Type: {validationResult.type}</p>
+                  <p className="text-xl mb-2">📧 Email: {validationResult.email}</p>
+                  <p className="text-xl">📅 Valid Until: {new Date(validationResult.valid_till).toLocaleDateString()}</p>
                 </div>
+                <div className="flex gap-4 justify-center">
+                  <Button
+                    onClick={handleManualRefresh}
+                    className="bg-white text-emerald-600 hover:bg-slate-100 font-semibold px-6 py-2"
+                  >
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Refresh Now
+                  </Button>
+                </div>
+                <p className="text-lg mt-6 opacity-75">⏱️ Auto-refreshing in {autoRefreshCountdown} seconds...</p>
               </>
             ) : (
               <>
                 <XCircle className="w-32 h-32 mx-auto mb-8 animate-bounce" />
-                <h2 className="text-6xl font-bold mb-4 tracking-tight">ACCESS DENIED</h2>
-                <p className="text-3xl mb-8">{validationResult.reason}</p>
+                <h2 className="text-6xl font-bold mb-4 tracking-tight">✗ ACCESS DENIED</h2>
+                <p className="text-3xl mb-8 font-semibold">{validationResult.reason}</p>
                 {validationResult.name && (
-                  <div className="bg-white/20 backdrop-blur-sm rounded-xl p-6 max-w-md mx-auto">
-                    <p className="text-xl mb-2">Name: {validationResult.name}</p>
+                  <div className="bg-white/20 backdrop-blur-sm rounded-xl p-6 max-w-md mx-auto mb-8">
+                    <p className="text-xl mb-2">👤 Name: {validationResult.name}</p>
                     {validationResult.expired_on && (
-                      <p className="text-xl">Expired On: {new Date(validationResult.expired_on).toLocaleDateString()}</p>
+                      <p className="text-xl">📅 Expired On: {new Date(validationResult.expired_on).toLocaleDateString()}</p>
                     )}
                   </div>
                 )}
+                <div className="flex gap-4 justify-center">
+                  <Button
+                    onClick={handleManualRefresh}
+                    className="bg-white text-red-600 hover:bg-slate-100 font-semibold px-6 py-2"
+                  >
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Try Again
+                  </Button>
+                </div>
+                <p className="text-lg mt-6 opacity-75">⏱️ Auto-refreshing in {autoRefreshCountdown} seconds...</p>
               </>
             )}
-            <p className="text-lg mt-8 opacity-75">Auto-clearing in 5 seconds...</p>
           </div>
         </div>
       )}

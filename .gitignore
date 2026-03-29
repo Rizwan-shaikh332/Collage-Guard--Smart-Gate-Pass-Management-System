@@ -16,10 +16,14 @@ Thumbs.db
 # Environment variables
 # =========================
 .env
-.env.*
 backend/.env
 frontend/.env
-.env
+
+# Allow example files (needed for setup)
+!.env.example
+!backend/.env.example
+!frontend/.env.example
+
 node_modules/
 # =========================
 # Python (Backend)

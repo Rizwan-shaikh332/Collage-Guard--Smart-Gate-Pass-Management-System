@@ -55,6 +55,7 @@ class Student(BaseModel):
     mobile_no: str
     dob: str
     current_year: int
+    department: str = ""  # Department/Branch the student belongs to
     token: str = Field(default_factory=lambda: str(uuid.uuid4()))
     valid_till: str
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -100,20 +101,22 @@ class Alumni(BaseModel):
     secondary_email: Optional[str] = None
     mobile_no: str
     secondary_phone: Optional[str] = None
-    enrollment_number: str
-    degree: str
-    department: str
+    enrollment_number: Optional[str] = None
+    gender: str  # 'Male', 'Female', 'Other'
+    degree: str  # 'BE', 'BTech', 'MTech', 'PhD', 'PhDM'
+    branch: str  # Branch of study
     address: str
     designation: str
     company: str
     year_of_passing: str
     year_of_joining: str
-    sub_institute: str
-    linkedin_profile: Optional[str] = None  # Additional field - professional profile link
+    sub_institute: str  # College/Institute name
+    registered_for_portal: str  # 'yes' or 'no'
+    linkedin_profile: Optional[str] = None
     whom_to_meet: str  # 'faculty', 'student', 'visitor'
-    selected_person_id: Optional[str] = None  # ID of selected faculty/student
-    selected_person_name: Optional[str] = None  # Name of selected faculty/student
-    selected_person_mobile: Optional[str] = None  # Mobile of selected faculty/student
+    selected_person_id: Optional[str] = None
+    selected_person_name: Optional[str] = None
+    selected_person_mobile: Optional[str] = None
     photo_base64: Optional[str] = None
     token: str = Field(default_factory=lambda: str(uuid.uuid4()))
     valid_till: str = Field(default_factory=lambda: (datetime.now(timezone.utc) + timedelta(days=1)).isoformat())
@@ -175,6 +178,7 @@ class StudentCreate(BaseModel):
     mobile_no: str
     dob: str
     current_year: int
+    department: str = ""  # Department/Branch
 
 class FacultyCreate(BaseModel):
     name: str
@@ -210,7 +214,7 @@ def calculate_student_validity(current_year: int) -> str:
     return valid_till.isoformat()
 
 async def get_next_faculty_id() -> str:
-    """Generate next faculty ID in format fact_0001"""
+    """Generate next faculty ID in format PICT-FAC-001"""
     # Find the highest faculty_id number across all records
     result = await db.faculty.find_one(
         {},
@@ -218,15 +222,34 @@ async def get_next_faculty_id() -> str:
         projection={"_id": 0, "faculty_id": 1}
     )
     if not result:
-        return "fact_0001"
-    last_id = result.get("faculty_id", "fact_0000")
+        return "PICT-FAC-001"
+    last_id = result.get("faculty_id", "PICT-FAC-000")
     try:
-        num = int(last_id.split("_")[1]) + 1
+        # Handle both old (fact_XXX) and new (PICT-FAC-XXX) formats
+        if "PICT-FAC-" in last_id:
+            num = int(last_id.split("-")[-1]) + 1
+        else:
+            num = int(last_id.split("_")[1]) + 1
     except (ValueError, IndexError):
         num = 1
-    return f"fact_{num:04d}"
+    return f"PICT-FAC-{num:03d}"
 
-def generate_qr_code(token: str) -> str:
+async def generate_external_student_id(event_name: str, event_id: str) -> str:
+    """Generate unique ID for external students (EventName_exe001 format)"""
+    # Sanitize event name: remove spaces, special chars, keep lettters/numbers/underscores only
+    sanitized_name = "".join(c if c.isalnum() or c == "_" else "_" for c in event_name)
+    # Replace multiple underscores with single underscore and remove trailing/leading
+    sanitized_name = "_".join(filter(None, sanitized_name.split("_")))
+    
+    # Get count of external students already added for this event
+    count = await db.event_students.count_documents({"event_id": event_id})
+    # Start from 1 (001 format)
+    next_num = count + 1
+    
+    # Format: EventName_exe001
+    return f"{sanitized_name}_exe{next_num:03d}"
+
+
     """Generate QR code as base64 string"""
     qr = qrcode.QRCode(version=1, box_size=10, border=4)
     qr.add_data(token)
@@ -238,16 +261,23 @@ def generate_qr_code(token: str) -> str:
     buffer.seek(0)
     return base64.b64encode(buffer.read()).decode()
 
-async def send_qr_email(recipient_email: str, name: str, token: str, valid_till: str):
-    """Send QR code via Gmail SMTP"""
-    if not GMAIL_PASSWORD:
-        logger.warning("Gmail password not configured in .env file")
-        return False
-    
+async def send_qr_email(recipient_email: str, name: str, token: str, valid_till: str) -> dict:
+    """Send QR code via Gmail SMTP - Returns dict with status"""
     # Validate recipient email
     if not recipient_email or "@" not in recipient_email:
-        logger.error(f"Invalid recipient email: {recipient_email}")
-        return False
+        return {
+            "success": False, 
+            "email": recipient_email,
+            "reason": f"Invalid email format: {recipient_email}"
+        }
+    
+    if not GMAIL_PASSWORD:
+        logger.warning("Gmail password not configured in .env file")
+        return {
+            "success": False,
+            "email": recipient_email,
+            "reason": "Gmail not configured (.env missing GMAIL_PASSWORD)"
+        }
     
     qr_base64 = generate_qr_code(token)
     
@@ -290,26 +320,59 @@ async def send_qr_email(recipient_email: str, name: str, token: str, valid_till:
         qr_image.add_header('Content-Disposition', 'inline', filename='qrcode.png')
         msg.attach(qr_image)
         
-        # Send email via Gmail SMTP
+        # Send email via Gmail SMTP with timeout
         def send_email():
             try:
-                with smtplib.SMTP(GMAIL_SMTP_SERVER, GMAIL_SMTP_PORT) as server:
+                with smtplib.SMTP(GMAIL_SMTP_SERVER, GMAIL_SMTP_PORT, timeout=10) as server:
                     server.starttls()
                     server.login(SENDER_EMAIL, GMAIL_PASSWORD)
                     server.send_message(msg)
                     return True
+            except smtplib.SMTPAuthenticationError as e:
+                logger.error(f"Gmail Authentication Error - Check SENDER_EMAIL and GMAIL_PASSWORD: {str(e)}")
+                raise
+            except smtplib.SMTPException as e:
+                logger.error(f"Gmail SMTP Error: {str(e)}")
+                raise
+            except TimeoutError as e:
+                logger.error(f"Gmail Connection Timeout: Could not connect to {GMAIL_SMTP_SERVER}:{GMAIL_SMTP_PORT} - {str(e)}")
+                raise
             except Exception as e:
-                logger.error(f"SMTP Error: {str(e)}")
+                logger.error(f"Unexpected Email Error: {str(e)}")
                 raise
         
         await asyncio.to_thread(send_email)
         logger.info(f"Email sent successfully to {recipient_email}")
-        return True
+        return {
+            "success": True,
+            "email": recipient_email,
+            "reason": "Email sent successfully"
+        }
+    except smtplib.SMTPAuthenticationError as e:
+        error_msg = f"Gmail authentication failed for {SENDER_EMAIL}. Check your GMAIL_PASSWORD in .env file."
+        logger.error(error_msg)
+        return {
+            "success": False,
+            "email": recipient_email,
+            "reason": error_msg
+        }
+    except TimeoutError as e:
+        error_msg = f"Gmail server connection timeout. Check your internet connection."
+        logger.error(f"Timeout sending email to {recipient_email}: {str(e)}")
+        return {
+            "success": False,
+            "email": recipient_email,
+            "reason": error_msg
+        }
     except Exception as e:
-        logger.error(f"Failed to send email to {recipient_email}: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return False
+        error_msg = f"Failed to send email to {recipient_email}: {str(e)}"
+        logger.error(error_msg)
+        return {
+            "success": False,
+            "email": recipient_email,
+            "reason": str(e)
+        }
+
 
 # ============ AUTH ROUTES ============
 
@@ -350,10 +413,22 @@ async def guard_login(data: GuardLogin):
 
 @api_router.post("/students", response_model=Student)
 async def create_student(data: StudentCreate):
-    # Check if student exists
-    existing = await db.students.find_one({"reg_no": data.reg_no}, {"_id": 0})
+    # Check if student exists by reg_no, email, or mobile_no
+    existing = await db.students.find_one(
+        {"$or": [
+            {"reg_no": data.reg_no},
+            {"email": data.email},
+            {"mobile_no": data.mobile_no}
+        ]},
+        {"_id": 0}
+    )
     if existing:
-        raise HTTPException(status_code=400, detail="Student already exists")
+        if existing.get('reg_no') == data.reg_no:
+            raise HTTPException(status_code=400, detail=f"Student with Reg No '{data.reg_no}' already exists")
+        elif existing.get('email') == data.email:
+            raise HTTPException(status_code=400, detail=f"Student with Email '{data.email}' already exists")
+        else:
+            raise HTTPException(status_code=400, detail=f"Student with Mobile '{data.mobile_no}' already exists")
     
     valid_till = calculate_student_validity(data.current_year)
     student = Student(**data.model_dump(), valid_till=valid_till)
@@ -378,23 +453,16 @@ async def bulk_create_students(file: UploadFile = File(...)):
             if not row or not row[0]:  # Skip empty rows
                 continue
             
-            # Handle both cases: with and without Student ID column
-            # If 7 columns, assume first is Student ID (auto-generated, ignore it)
-            # If 6 columns, use all as: RegNo, Name, Email, Mobile, DOB, Year
-            col_offset = 0
-            if len(row) >= 7 and row[0]:  # Might have Student ID in first column
-                col_offset = 1
-                actual_rows = row[1:]
-            else:
-                actual_rows = row
+            # Excel format: RegNo, Name, Email, Mobile, DOB, Year, Department (7 columns, Department is optional)
+            actual_rows = row
             
-            # Validate we have the required 6 columns
+            # Validate we have the required 6 columns (Department is optional)
             if len(actual_rows) < 6:
-                errors.append(f"Row {idx}: Missing required columns (need 6: RegNo, Name, Email, Mobile, DOB, Year)")
-                logger.error(f"Row {idx} column count: {len(actual_rows)}, raw row length: {len(row)}")
+                errors.append(f"Row {idx}: Missing required columns (need at least 6: RegNo, Name, Email, Mobile, DOB, Year)")
+                logger.error(f"Row {idx} column count: {len(actual_rows)}")
                 continue
             
-            # Check for None/empty values
+            # Check for None/empty values (first 6 are required, 7th is optional)
             if not actual_rows[0] or not actual_rows[1] or not actual_rows[2] or not actual_rows[3] or not actual_rows[4] or not actual_rows[5]:
                 missing_fields = []
                 field_names = ["RegNo", "Name", "Email", "Mobile", "DOB", "Year"]
@@ -415,13 +483,19 @@ async def bulk_create_students(file: UploadFile = File(...)):
                     errors.append(f"Row {idx}: Year field (column 6) must be a number (1-4), not '{actual_rows[5]}'")
                     continue
                 
+                # Department is optional (column 7)
+                department = ""
+                if len(actual_rows) >= 7 and actual_rows[6]:
+                    department = str(actual_rows[6]).strip()
+                
                 data = StudentCreate(
                     reg_no=str(actual_rows[0]).strip(),
                     name=str(actual_rows[1]).strip(),
                     email=str(actual_rows[2]).strip(),
                     mobile_no=str(actual_rows[3]).strip(),
                     dob=str(actual_rows[4]).strip(),
-                    current_year=year_val
+                    current_year=year_val,
+                    department=department
                 )
             except Exception as validation_error:
                 errors.append(f"Row {idx}: Invalid data format - {str(validation_error)}")
@@ -438,9 +512,17 @@ async def bulk_create_students(file: UploadFile = File(...)):
                 {"_id": 0}
             )
             if existing:
-                duplicates.append(f"Row {idx}: {data.reg_no} (Email/Mobile/RegNo already exists)")
-                continue
+                # Remove the old duplicate and add the new one
+                await db.students.delete_one({
+                    "$or": [
+                        {"reg_no": data.reg_no},
+                        {"email": data.email},
+                        {"mobile_no": data.mobile_no}
+                    ]
+                })
+                duplicates.append(f"Row {idx}: {data.reg_no} (Removed old duplicate, adding updated record)")
             
+            # Use the reg_no directly from Excel (no auto-generation)
             valid_till = calculate_student_validity(data.current_year)
             student = Student(**data.model_dump(), valid_till=valid_till)
             await db.students.insert_one(student.model_dump())
@@ -468,6 +550,20 @@ async def get_students():
 
 @api_router.post("/faculty", response_model=Faculty)
 async def create_faculty(data: FacultyCreate):
+    # Check if faculty exists by email or mobile_no
+    existing = await db.faculty.find_one(
+        {"$or": [
+            {"email": data.email},
+            {"mobile_no": data.mobile_no}
+        ]},
+        {"_id": 0}
+    )
+    if existing:
+        if existing.get('email') == data.email:
+            raise HTTPException(status_code=400, detail=f"Faculty with Email '{data.email}' already exists")
+        else:
+            raise HTTPException(status_code=400, detail=f"Faculty with Mobile '{data.mobile_no}' already exists")
+    
     faculty_id = await get_next_faculty_id()
     faculty = Faculty(**data.model_dump(), faculty_id=faculty_id)
     await db.faculty.insert_one(faculty.model_dump())
@@ -493,7 +589,12 @@ async def bulk_create_faculty(file: UploadFile = File(...)):
         projection={"faculty_id": 1}
     )
     try:
-        last_num = int(last_result["faculty_id"].split("_")[1]) if last_result else 0
+        if last_result and "PICT-FAC-" in last_result["faculty_id"]:
+            last_num = int(last_result["faculty_id"].split("-")[-1])
+        elif last_result and "_" in last_result["faculty_id"]:
+            last_num = int(last_result["faculty_id"].split("_")[1])
+        else:
+            last_num = 0
     except (ValueError, IndexError, TypeError):
         last_num = 0
     
@@ -553,11 +654,17 @@ async def bulk_create_faculty(file: UploadFile = File(...)):
                 {"_id": 0}
             )
             if existing:
-                duplicates.append(f"Row {idx}: {data.name} (Email/Mobile already exists)")
-                continue
+                # Remove the old duplicate and add the new one
+                await db.faculty.delete_one({
+                    "$or": [
+                        {"email": data.email},
+                        {"mobile_no": data.mobile_no}
+                    ]
+                })
+                duplicates.append(f"Row {idx}: {data.name} (Removed old duplicate, adding updated record)")
             
             # Use the local counter to generate unique IDs
-            faculty_id = f"fact_{next_id_num:04d}"
+            faculty_id = f"PICT-FAC-{next_id_num:03d}"
             next_id_num += 1
             faculty = Faculty(**data.model_dump(), faculty_id=faculty_id)
             await db.faculty.insert_one(faculty.model_dump())
@@ -596,7 +703,7 @@ async def get_events():
 
 class EventStudentManualCreate(BaseModel):
     event_id: str
-    reg_no: str
+    reg_no: Optional[str] = None  # Optional - auto-generated if not provided
     name: str
     email: EmailStr
     mobile_no: str
@@ -626,15 +733,21 @@ async def add_student_to_event(data: EventStudentCreate):
     
     await db.event_students.insert_one(event_student.model_dump())
     
-    # Send QR email
-    await send_qr_email(
+    # Send QR email with error handling
+    email_result = await send_qr_email(
         event_student.email,
         event_student.name,
         event_student.token,
         event_student.valid_to
     )
     
-    return {"success": True, "message": "Student added to event and email sent"}
+    response_msg = "Student added to event"
+    if email_result["success"]:
+        response_msg += " and email sent successfully"
+    else:
+        response_msg += f" (Email failed: {email_result['reason']})"
+    
+    return {"success": True, "message": response_msg}
 
 @api_router.post("/events/students/manual")
 async def add_manual_student_to_event(data: EventStudentManualCreate):
@@ -643,10 +756,37 @@ async def add_manual_student_to_event(data: EventStudentManualCreate):
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
     
+    # Check if student with same email/mobile already exists in this event
+    existing_student = await db.event_students.find_one(
+        {
+            "event_id": data.event_id,
+            "$or": [
+                {"email": data.email},
+                {"mobile_no": data.mobile_no}
+            ]
+        },
+        {"_id": 0}
+    )
+    
+    if existing_student:
+        # Student already in event - return existing record with reused ID
+        return {
+            "success": True,
+            "message": f"Student already registered for this event with ID: {existing_student['reg_no']}",
+            "student_id": existing_student['reg_no'],
+            "reused": True
+        }
+    
+    # Auto-generate reg_no if not provided (for external students)
+    if data.reg_no:
+        reg_no = data.reg_no
+    else:
+        reg_no = await generate_external_student_id(event["event_name"], data.event_id)
+    
     # Create event student entry with manual data
     event_student = EventStudent(
         event_id=data.event_id,
-        reg_no=data.reg_no,
+        reg_no=reg_no,
         name=data.name,
         email=data.email,
         mobile_no=data.mobile_no,
@@ -656,15 +796,21 @@ async def add_manual_student_to_event(data: EventStudentManualCreate):
     
     await db.event_students.insert_one(event_student.model_dump())
     
-    # Send QR email
-    await send_qr_email(
+    # Send QR email with error handling
+    email_result = await send_qr_email(
         event_student.email,
         event_student.name,
         event_student.token,
         event_student.valid_to
     )
     
-    return {"success": True, "message": "External student added to event and email sent"}
+    response_msg = f"External student added to event (ID: {reg_no})"
+    if email_result["success"]:
+        response_msg += " and email sent successfully"
+    else:
+        response_msg += f" (Email failed: {email_result['reason']})"
+    
+    return {"success": True, "message": response_msg, "student_id": reg_no}
 
 @api_router.post("/events/students/bulk")
 async def bulk_add_students_to_event(event_id: str = Form(...), file: UploadFile = File(...)):
@@ -683,39 +829,84 @@ async def bulk_add_students_to_event(event_id: str = Form(...), file: UploadFile
     students_added = 0
     duplicates = []
     errors = []
+    email_errors = []
     
     for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
         try:
-            if not row or not row[0]:  # Skip empty rows
+            if not row or (not row[0] and not row[1]):  # Skip completely empty rows
                 continue
             
-            reg_no = str(row[0]).strip()
-            email = str(row[2]).strip() if len(row) >= 3 and row[2] else None
+            email = None
+            reg_no = None
             
             # Check if it's a manual entry (has name, email, mobile in Excel)
             if len(row) >= 4 and row[1] and row[2] and row[3]:
-                # Manual entry for external students
+                # Manual entry for external students (name, email, mobile provided)
                 try:
+                    name = str(row[1]).strip()
+                    email = str(row[2]).strip()
+                    mobile_no = str(row[3]).strip()
+                    
+                    # Check if student with same email/mobile already exists in this event
+                    existing_student = await db.event_students.find_one(
+                        {
+                            "event_id": event_id,
+                            "$or": [
+                                {"email": email},
+                                {"mobile_no": mobile_no}
+                            ]
+                        },
+                        {"_id": 0}
+                    )
+                    
+                    if existing_student:
+                        duplicates.append(f"Row {idx}: {name} ({email}) - Already registered with ID: {existing_student['reg_no']}")
+                        continue
+                    
+                    # Auto-generate reg_no if first column is empty (for external students)
+                    if row[0]:
+                        reg_no = str(row[0]).strip()
+                    else:
+                        reg_no = await generate_external_student_id(event["event_name"], event_id)
+                    
                     event_student = EventStudent(
                         event_id=event_id,
                         reg_no=reg_no,
-                        name=str(row[1]).strip(),
-                        email=str(row[2]).strip(),
-                        mobile_no=str(row[3]).strip(),
+                        name=name,
+                        email=email,
+                        mobile_no=mobile_no,
                         valid_from=event["date_from"],
                         valid_to=event["date_to"]
                     )
-                    email = str(row[2]).strip()
                 except Exception as validation_error:
                     errors.append(f"Row {idx}: Invalid manual entry format - {str(validation_error)}")
                     logger.error(f"Row {idx} validation error: {str(validation_error)}")
                     continue
             else:
-                # Try to find in existing students
+                # Try to find in existing students (only reg_no provided)
+                reg_no = str(row[0]).strip() if row[0] else None
+                
+                if not reg_no:
+                    errors.append(f"Row {idx}: Missing registration number or complete student details")
+                    continue
+                
                 student = await db.students.find_one({"reg_no": reg_no}, {"_id": 0})
                 
                 if not student:
-                    errors.append(f"Row {idx}: Student {reg_no} not found in database and no manual data provided")
+                    errors.append(f"Row {idx}: PICT Student {reg_no} not found in database. Provide name, email, mobile for external students")
+                    continue
+                
+                # Check if already added to this event
+                existing_event_student = await db.event_students.find_one(
+                    {
+                        "event_id": event_id,
+                        "email": student["email"]
+                    },
+                    {"_id": 0}
+                )
+                
+                if existing_event_student:
+                    duplicates.append(f"Row {idx}: {student['name']} ({reg_no}) - Already registered for this event")
                     continue
                 
                 try:
@@ -734,24 +925,26 @@ async def bulk_add_students_to_event(event_id: str = Form(...), file: UploadFile
                     logger.error(f"Row {idx} validation error: {str(validation_error)}")
                     continue
             
-            # Check if already added to this event
-            existing = await db.event_students.find_one(
-                {"event_id": event_id, "email": email},
-                {"_id": 0}
-            )
-            if existing:
-                duplicates.append(f"Row {idx}: {reg_no} (Already added to this event)")
-                continue
-            
             await db.event_students.insert_one(event_student.model_dump())
             
-            # Send email
-            await send_qr_email(
+            # Send email with error handling - continue if email fails
+            email_result = await send_qr_email(
                 event_student.email,
                 event_student.name,
                 event_student.token,
                 event_student.valid_to
             )
+            
+            if not email_result["success"]:
+                # Log email failure but continue processing
+                email_errors.append({
+                    "row": idx,
+                    "name": event_student.name,
+                    "email": event_student.email,
+                    "student_id": event_student.reg_no,
+                    "reason": email_result["reason"]
+                })
+                logger.warning(f"Row {idx}: Email failed for {event_student.name} ({event_student.email}): {email_result['reason']}")
             
             students_added += 1
         except Exception as e:
@@ -765,13 +958,90 @@ async def bulk_add_students_to_event(event_id: str = Form(...), file: UploadFile
         "duplicates": len(duplicates), 
         "duplicate_details": duplicates,
         "error_count": len(errors),
-        "error_details": errors  # Show detailed error list
+        "error_details": errors,
+        "email_errors": len(email_errors),
+        "email_error_details": email_errors
     }
 
 @api_router.get("/events/{event_id}/students", response_model=List[EventStudent])
 async def get_event_students(event_id: str):
     students = await db.event_students.find({"event_id": event_id}, {"_id": 0}).to_list(1000)
     return students
+
+@api_router.post("/events/{event_id}/students/{token}/resend-email")
+async def resend_student_email(event_id: str, token: str):
+    """Resend QR code email to a specific event student"""
+    student = await db.event_students.find_one(
+        {"event_id": event_id, "token": token},
+        {"_id": 0}
+    )
+    
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found in event")
+    
+    # Resend QR email
+    email_result = await send_qr_email(
+        student["email"],
+        student["name"],
+        student["token"],
+        student["valid_to"]
+    )
+    
+    if not email_result["success"]:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to send email: {email_result['reason']}"
+        )
+    
+    return {
+        "success": True,
+        "message": f"Email resent successfully to {student['email']}",
+        "student": {
+            "name": student["name"],
+            "email": student["email"],
+            "reg_no": student["reg_no"]
+        }
+    }
+
+@api_router.post("/events/{event_id}/bulk-resend-emails")
+async def bulk_resend_emails(event_id: str):
+    """Resend QR codes to all students in an event"""
+    event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    
+    students = await db.event_students.find({"event_id": event_id}, {"_id": 0}).to_list(1000)
+    
+    if not students:
+        raise HTTPException(status_code=404, detail="No students found for this event")
+    
+    success_count = 0
+    failed_emails = []
+    
+    for student in students:
+        email_result = await send_qr_email(
+            student["email"],
+            student["name"],
+            student["token"],
+            student["valid_to"]
+        )
+        
+        if email_result["success"]:
+            success_count += 1
+        else:
+            failed_emails.append({
+                "name": student["name"],
+                "email": student["email"],
+                "reason": email_result["reason"]
+            })
+    
+    return {
+        "success": True,
+        "message": f"Emails sent to {success_count}/{len(students)} students",
+        "sent": success_count,
+        "failed": len(failed_emails),
+        "failed_details": failed_emails
+    }
 
 # ============ SEARCH ROUTES FOR ALUMNI ============
 
@@ -1220,7 +1490,57 @@ async def get_dashboard_stats():
         "total_registered_visitors": total_registered_visitors
     }
 
+# ============ DIAGNOSTIC ENDPOINTS ============
 
+@api_router.get("/health/email")
+async def check_email_health():
+    """Check Gmail SMTP connectivity and configuration"""
+    diagnostics = {
+        "service": "Gmail SMTP",
+        "status": "unknown",
+        "server": GMAIL_SMTP_SERVER,
+        "port": GMAIL_SMTP_PORT,
+        "sender_email": SENDER_EMAIL,
+        "issues": []
+    }
+    
+    # Check environment variables
+    if not SENDER_EMAIL:
+        diagnostics["issues"].append("❌ SENDER_EMAIL not configured in .env")
+    
+    if not GMAIL_PASSWORD:
+        diagnostics["issues"].append("❌ GMAIL_PASSWORD not configured in .env")
+        diagnostics["status"] = "failed"
+        return diagnostics
+    
+    # Try to connect to Gmail SMTP
+    def test_gmail_connection():
+        try:
+            with smtplib.SMTP(GMAIL_SMTP_SERVER, GMAIL_SMTP_PORT, timeout=5) as server:
+                server.starttls()
+                server.login(SENDER_EMAIL, GMAIL_PASSWORD)
+                return True, None
+        except smtplib.SMTPAuthenticationError as e:
+            return False, f"Authentication failed: {str(e)}"
+        except TimeoutError:
+            return False, f"Connection timeout: Could not reach {GMAIL_SMTP_SERVER}:{GMAIL_SMTP_PORT}"
+        except OSError as e:
+            return False, f"Network error: {str(e)}"
+        except Exception as e:
+            return False, f"Unexpected error: {str(e)}"
+    
+    try:
+        success, error = await asyncio.to_thread(test_gmail_connection)
+        if success:
+            diagnostics["status"] = "✅ OK - Gmail SMTP working"
+        else:
+            diagnostics["status"] = "❌ FAILED"
+            diagnostics["issues"].append(error)
+    except Exception as e:
+        diagnostics["status"] = "❌ FAILED"
+        diagnostics["issues"].append(f"Test error: {str(e)}")
+    
+    return diagnostics
 
 # Include router
 app.include_router(api_router)

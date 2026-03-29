@@ -187,6 +187,13 @@ export default function VisitorRegistration() {
       }
     }
 
+    // Validate phone number - exactly 10 digits
+    const mobileRegex = /^\d{10}$/;
+    if (!mobileRegex.test(formData.phone_number)) {
+      toast.error("Phone number must be exactly 10 digits");
+      return false;
+    }
+
     if (!idProofBase64) {
       toast.error("Please upload ID Proof");
       return false;
@@ -237,59 +244,71 @@ export default function VisitorRegistration() {
 
   return (
     <div
-      className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800"
+      className="min-h-screen bg-gradient-to-b from-white to-blue-50"
       data-testid="visitor-registration"
     >
       {/* Header */}
-      <header className="bg-white/95 backdrop-blur border-b border-slate-200 sticky top-0 z-50">
-        <div className="container mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2 sm:gap-3">
-            <ShieldCheck className="w-6 sm:w-8 h-6 sm:h-8 text-slate-900 flex-shrink-0" />
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-              Visitor Registration
-            </h1>
+      <header className="bg-gradient-to-r from-blue-700 to-blue-600 border-b-4 border-blue-400 shadow-lg sticky top-0 z-50">
+        <div className="container mx-auto px-3 sm:px-4 md:px-6 py-4 sm:py-5 flex items-center justify-between gap-2 sm:gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+            <div className="w-10 sm:w-12 h-10 sm:h-12 bg-white rounded-lg flex items-center justify-center shadow-md flex-shrink-0">
+              <ShieldCheck className="w-5 sm:w-7 h-5 sm:h-7 text-blue-700" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-base sm:text-xl md:text-2xl font-bold text-white tracking-tight truncate">
+                Visitor Registration
+              </h1>
+              <p className="text-xs text-blue-100 font-medium hidden sm:block">PICT Guard - Register as Visitor</p>
+            </div>
           </div>
           <Button
             onClick={() => navigate("/")}
             variant="ghost"
-            className="text-slate-600 hover:text-slate-900 text-sm sm:text-base"
+            className="text-white hover:bg-white/20 font-semibold text-xs sm:text-sm h-9 sm:h-10 px-3 sm:px-5 rounded-lg transition-all duration-300 flex-shrink-0"
             data-testid="back-to-home"
           >
-            Back to Home
+            Home
           </Button>
         </div>
       </header>
 
-      <div className="container mx-auto px-4 sm:px-6 py-8 sm:py-12 max-w-4xl">
+      <div className="container mx-auto px-3 sm:px-4 md:px-6 py-4 sm:py-6 md:py-12 max-w-4xl">
         {/* Form Step */}
         {step === "form" && (
-          <div className="bg-white rounded-xl sm:rounded-2xl shadow-2xl p-6 sm:p-8 lg:p-10">
-            <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-slate-900 mb-8 tracking-tight">
-              Register as Visitor
-            </h2>
+          <div className="bg-white rounded-lg sm:rounded-2xl shadow-xl border-2 border-blue-100 overflow-hidden">
+            {/* Form Header */}
+            <div className="bg-gradient-to-r from-blue-600 to-blue-500 px-4 sm:px-6 md:px-8 py-4 sm:py-6 md:py-8">
+              <h2 className="text-lg sm:text-2xl md:text-3xl font-bold text-white mb-1 sm:mb-2">
+                Visitor Registration
+              </h2>
+              <p className="text-blue-100 text-xs sm:text-sm">Fill all fields to generate your digital gate pass</p>
+            </div>
 
-            <form onSubmit={handleSubmit} className="space-y-6 sm:space-y-8">
+            <form onSubmit={handleSubmit} className="p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-6 md:space-y-8">
               {/* Basic Visitor Information Section */}
-              <div className="space-y-4 p-4 sm:p-6 bg-slate-50 rounded-lg border border-slate-200">
-                <h3 className="text-lg font-semibold text-slate-900">
-                  📋 Basic Visitor Information
-                </h3>
+              <div className="space-y-4 p-5 sm:p-6 bg-gradient-to-br from-blue-50 to-blue-100/50 rounded-xl border-2 border-blue-200">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                    <span className="text-white font-bold text-sm">📋</span>
+                  </div>
+                  <h3 className="text-lg font-bold text-blue-900">Basic Visitor Information</h3>
+                </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="full_name" className="text-sm font-medium">
+                    <Label htmlFor="full_name" className="text-sm font-semibold text-blue-900 mb-2 block">
                       Full Name *
                     </Label>
                     <Input
                       id="full_name"
                       type="text"
-                      placeholder="John Doe"
+                      placeholder="Enter your full name"
                       value={formData.full_name}
                       onChange={(e) =>
                         handleInputChange("full_name", e.target.value)
                       }
                       required
-                      className="mt-2 h-10"
+                      className="mt-2 h-11 border-2 border-blue-200 focus:border-blue-500 focus:ring-blue-500 rounded-lg"
                       data-testid="visitor-full-name"
                     />
                   </div>
@@ -297,20 +316,22 @@ export default function VisitorRegistration() {
                   <div>
                     <Label
                       htmlFor="phone_number"
-                      className="text-sm font-medium"
+                      className="text-sm font-semibold text-blue-900 mb-2 block"
                     >
-                      Phone Number *
+                      Phone Number (10 digits) *
                     </Label>
                     <Input
                       id="phone_number"
                       type="tel"
-                      placeholder="+91 9876543210"
+                      placeholder="9876543210"
                       value={formData.phone_number}
-                      onChange={(e) =>
-                        handleInputChange("phone_number", e.target.value)
-                      }
+                      onChange={(e) => {
+                        const value = e.target.value.replace(/\D/g, "").slice(0, 10);
+                        handleInputChange("phone_number", value);
+                      }}
+                      maxLength="10"
                       required
-                      className="mt-2 h-10"
+                      className="mt-2 h-11 border-2 border-blue-200 focus:border-blue-500 focus:ring-blue-500 rounded-lg"
                       data-testid="visitor-phone"
                     />
                   </div>
@@ -318,25 +339,25 @@ export default function VisitorRegistration() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="email" className="text-sm font-medium">
+                    <Label htmlFor="email" className="text-sm font-semibold text-blue-900 mb-2 block">
                       Email Address *
                     </Label>
                     <Input
                       id="email"
                       type="email"
-                      placeholder="john@example.com"
+                      placeholder="your.email@domain.com"
                       value={formData.email}
                       onChange={(e) =>
                         handleInputChange("email", e.target.value)
                       }
                       required
-                      className="mt-2 h-10"
+                      className="mt-2 h-11 border-2 border-blue-200 focus:border-blue-500 focus:ring-blue-500 rounded-lg"
                       data-testid="visitor-email"
                     />
                   </div>
 
                   <div>
-                    <Label htmlFor="gender" className="text-sm font-medium">
+                    <Label htmlFor="gender" className="text-sm font-semibold text-blue-900 mb-2 block">
                       Gender *
                     </Label>
                     <select
@@ -346,7 +367,7 @@ export default function VisitorRegistration() {
                         handleInputChange("gender", e.target.value)
                       }
                       required
-                      className="mt-2 w-full h-10 px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-slate-900 focus:border-slate-900"
+                      className="mt-2 w-full h-11 px-4 py-2 border-2 border-blue-200 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white font-medium text-blue-900"
                       data-testid="visitor-gender"
                     >
                       <option value="">-- Select Gender --</option>
@@ -360,7 +381,7 @@ export default function VisitorRegistration() {
                 <div>
                   <Label
                     htmlFor="date_of_birth"
-                    className="text-sm font-medium"
+                    className="text-sm font-semibold text-blue-900 mb-2 block"
                   >
                     Age / Date of Birth *
                   </Label>
@@ -372,17 +393,20 @@ export default function VisitorRegistration() {
                       handleInputChange("date_of_birth", e.target.value)
                     }
                     required
-                    className="mt-2 h-10"
+                    className="mt-2 h-11 border-2 border-blue-200 focus:border-blue-500 focus:ring-blue-500 rounded-lg"
                     data-testid="visitor-dob"
                   />
                 </div>
               </div>
 
               {/* Identification Details Section */}
-              <div className="space-y-4 p-4 sm:p-6 bg-slate-50 rounded-lg border border-slate-200">
-                <h3 className="text-lg font-semibold text-slate-900">
-                  🆔 Identification Details
-                </h3>
+              <div className="space-y-4 p-5 sm:p-6 bg-gradient-to-br from-purple-50 to-purple-100/50 rounded-xl border-2 border-purple-200">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center">
+                    <span className="text-white font-bold text-sm">🆔</span>
+                  </div>
+                  <h3 className="text-lg font-bold text-purple-900">Identification Details</h3>
+                </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
@@ -615,10 +639,13 @@ export default function VisitorRegistration() {
               </div>
 
               {/* Purpose of Visit Section */}
-              <div className="space-y-4 p-4 sm:p-6 bg-slate-50 rounded-lg border border-slate-200">
-                <h3 className="text-lg font-semibold text-slate-900">
-                  🎯 Purpose of Visit
-                </h3>
+              <div className="space-y-4 p-5 sm:p-6 bg-gradient-to-br from-orange-50 to-orange-100/50 rounded-xl border-2 border-orange-200">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-8 h-8 bg-orange-600 rounded-lg flex items-center justify-center">
+                    <span className="text-white font-bold text-sm">🎯</span>
+                  </div>
+                  <h3 className="text-lg font-bold text-orange-900">Purpose of Visit</h3>
+                </div>
 
                 <div>
                   <Label htmlFor="purpose" className="text-sm font-medium">
@@ -646,10 +673,13 @@ export default function VisitorRegistration() {
               </div>
 
               {/* Photo Capture */}
-              <div className="space-y-4 p-4 sm:p-6 bg-slate-50 rounded-lg border border-slate-200">
-                <Label htmlFor="photo" className="text-lg font-semibold">
-                  📸 Photo (Selfie) *
-                </Label>
+              <div className="space-y-4 p-5 sm:p-6 bg-gradient-to-br from-indigo-50 to-indigo-100/50 rounded-xl border-2 border-indigo-200">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
+                    <span className="text-white font-bold text-sm">📸</span>
+                  </div>
+                  <Label htmlFor="photo" className="text-lg font-bold text-indigo-900">Photo (Selfie) *</Label>
+                </div>
                 <div className="mt-4">
                   {!photoBase64 ? (
                     <Button

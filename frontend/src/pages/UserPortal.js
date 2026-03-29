@@ -285,7 +285,7 @@ export default function UserPortal() {
                       </>
                     )}
 
-                    {isStudent && user.department && (
+                    {isStudent && (
                       <div>
                         <div className="flex items-center gap-2 mb-2">
                           <Briefcase className="w-4 h-4 text-slate-400" />
@@ -293,7 +293,7 @@ export default function UserPortal() {
                             Department
                           </p>
                         </div>
-                        <p className="text-slate-700">{user.department}</p>
+                        <p className="text-slate-700">{user.department || "N/A"}</p>
                       </div>
                     )}
 
